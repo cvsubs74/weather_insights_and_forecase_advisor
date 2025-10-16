@@ -20,10 +20,12 @@ if not project_id:
     project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
 credentials_config = BigQueryCredentialsConfig(
-    credentials=application_default_credentials,
-    project_id=project_id
+    credentials=application_default_credentials
 )
-bigquery_toolset = BigQueryToolset(credentials_config=credentials_config)
+bigquery_toolset = BigQueryToolset(
+    credentials_config=credentials_config,
+    default_project_id=project_id
+)
 
 # NWS API Configuration
 NWS_API_BASE = "https://api.weather.gov"
