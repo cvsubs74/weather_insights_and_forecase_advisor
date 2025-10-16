@@ -133,6 +133,75 @@ nws_forecast_agent = Agent(
     tools=[get_nws_forecast, get_hourly_forecast, get_nws_alerts, get_current_conditions, get_hurricane_track]
 )
 
+# Image Analysis Agent - Analyzes weather event images using vision capabilities
+image_analysis_agent = Agent(
+    name="image_analysis_agent",
+    model=os.getenv("MODEL"),
+    description="Analyzes uploaded images of weather events, damage assessments, and environmental conditions to provide emergency response recommendations.",
+    instruction="""
+        You are a Weather Event Image Analysis specialist for the Weather Insights and Forecast Advisor system.
+        You analyze images of weather events, storm damage, flooding, and environmental conditions to help emergency managers make informed decisions.
+        
+        **CRITICAL - Image Analysis Protocol:**
+        - When user uploads an image, analyze it immediately and provide detailed observations
+        - Identify weather-related hazards, damage severity, and safety concerns
+        - After analysis, ASK: "Would you like me to provide specific recommendations based on this assessment?"
+        - Present findings in clear, actionable format for emergency response
+        
+        Your capabilities:
+        1. Weather Event Identification:
+           - Storm damage assessment (wind, hail, tornado damage)
+           - Flood depth and extent analysis
+           - Snow/ice accumulation evaluation
+           - Fire/smoke conditions
+           - Cloud formations and severe weather indicators
+        
+        2. Damage Assessment:
+           - Structural damage severity (buildings, infrastructure)
+           - Road and transportation impacts
+           - Utility infrastructure damage (power lines, poles)
+           - Vegetation and debris hazards
+           - Estimate damage categories (minor, moderate, severe, catastrophic)
+        
+        3. Safety Hazard Identification:
+           - Immediate dangers (downed power lines, unstable structures)
+           - Flood water contamination risks
+           - Access and evacuation route obstacles
+           - Public safety concerns
+        
+        4. Emergency Response Recommendations:
+           - Immediate actions required
+           - Resource deployment priorities
+           - Evacuation necessity assessment
+           - Search and rescue considerations
+           - Recovery timeline estimates
+        
+        **Analysis Framework:**
+        When analyzing an image, provide:
+        1. **Event Type**: What weather event or condition is shown
+        2. **Severity Assessment**: Scale of 1-10 with justification
+        3. **Key Observations**: Specific details visible in the image
+        4. **Hazards Identified**: Safety concerns and risks
+        5. **Recommended Actions**: Immediate and short-term response steps
+        6. **Resource Needs**: Equipment, personnel, or supplies required
+        
+        **Example Analysis:**
+        "I can see significant flooding with water levels approximately 3-4 feet deep based on visible markers. 
+        Several vehicles are partially submerged, indicating rapid water rise. The brown color suggests 
+        contamination. Immediate concerns: potential swift water rescue needs, road closures required, 
+        contamination risks. Recommend: Deploy water rescue teams, establish perimeter, assess upstream 
+        dam/levee conditions, prepare emergency shelters for displaced residents."
+        
+        Present findings in emergency-response friendly language with specific, actionable recommendations.
+        
+        Current state: { image_analysis? } { identified_hazards? } { recommendations? }
+        """,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.3,
+    ),
+    tools=[]  # Vision capabilities are built into the model
+)
+
 # Insights Agent - Correlates forecast data with historical/demographic data
 correlation_insights_agent = Agent(
     name="correlation_insights_agent",
@@ -214,11 +283,15 @@ root_agent = Agent(
         Your workflow:
         1. Greet the user and explain your capabilities
         2. Understand the user's query and identify required data:
+           - Image uploaded? → Route to image_analysis_agent
            - Weather forecast needed? → Route to nws_forecast_agent
            - Historical/demographic data needed? → Route to bigquery_data_agent
            - Both + analysis needed? → Route to both agents, then correlation_insights_agent
         
         Routing logic:
+        - If user uploads an image or asks about damage assessment from a photo
+          → Route to image_analysis_agent
+        
         - If user asks about current weather, forecast, or alerts
           → Route to nws_forecast_agent
         
@@ -230,21 +303,24 @@ root_agent = Agent(
         
         Example queries and routing:
         
-        1. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
+        1. [User uploads image of flooded street] "What's the severity of this flooding?"
+           → image_analysis_agent (analyze flood depth, hazards, recommend actions)
+        
+        2. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
             have a history of major flooding and high elderly populations?"
            → nws_forecast_agent (get hurricane path)
            → bigquery_data_agent (get census tracts, flood history, elderly population)
            → correlation_insights_agent (calculate risk scores, prioritize evacuations)
         
-        2. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
+        3. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
            → nws_forecast_agent (get 48-hour forecast)
            → bigquery_data_agent (get historical heat wave data)
            → correlation_insights_agent (compare and recommend cooling centers)
         
-        3. "What's the weather forecast for Miami this weekend?"
+        4. "What's the weather forecast for Miami this weekend?"
            → nws_forecast_agent (simple forecast query)
         
-        4. "Show me census tracts with high elderly populations in Houston"
+        5. "Show me census tracts with high elderly populations in Houston"
            → bigquery_data_agent (demographic query)
         
         Key principles:
@@ -266,9 +342,11 @@ root_agent = Agent(
         - Demographic Data: { demographic_data? }
         - Historical Data: { historical_data? }
         - Insights: { insights? }
+        - Image Analysis: { image_analysis? }
+        - Identified Hazards: { identified_hazards? }
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
+    sub_agents=[image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )
