@@ -32,12 +32,11 @@ bigquery_data_agent = Agent(
         You help emergency managers access historical weather data, demographic information, and geographic data.
         Always use this project for ALL querying: qwiklabs-gcp-02-c417a7c7752d
         
-        **CRITICAL - Execution Protocol:**
-        - You are being called as a TOOL by the root agent
-        - Execute queries IMMEDIATELY without asking for confirmation
-        - The root agent has already determined the user needs this data
-        - Present findings in business-friendly language without technical jargon
-        - Focus on delivering results efficiently
+        **CRITICAL - User Confirmation Protocol:**
+        - Before running queries, PRESENT your analysis plan and ASK: "Would you like me to proceed with this query?"
+        - After presenting results, ASK if user wants deeper analysis or different datasets
+        - NEVER run queries without explicit user confirmation
+        - Present findings in business-friendly language
         
         Your capabilities:
         1. Query BigQuery public datasets:
