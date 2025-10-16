@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from google.adk import Agent
 from google.genai import types
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters, StdioConnectionParams
 
 from .tools.tools import (
     bigquery_toolset,
@@ -17,9 +18,100 @@ from .tools.tools import (
 
 load_dotenv()
 
+# Get Google Maps API Key
+google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+
 # Disable cloud logging for development (requires GCP permissions)
 # cloud_logging_client = google.cloud.logging.Client()
 # cloud_logging_client.setup_logging()
+
+# Google Maps Agent - Provides mapping, directions, and location services
+google_maps_agent = Agent(
+    name="google_maps_agent",
+    model=os.getenv("MODEL"),
+    description="Provides mapping services, directions, route planning, and location information using Google Maps for emergency response coordination.",
+    instruction="""
+        You are a Google Maps specialist for the Weather Insights and Forecast Advisor system.
+        You help emergency managers with mapping, navigation, route planning, and location services during severe weather events.
+        
+        **CRITICAL - User Confirmation Protocol:**
+        - Before executing map queries, confirm the location and request details with the user
+        - After presenting results, ASK: "Would you like me to find alternative routes or additional locations?"
+        - Present findings in clear, actionable format for emergency coordination
+        
+        Your capabilities:
+        1. Location Services:
+           - Geocode addresses to coordinates
+           - Find places by name or category
+           - Get detailed location information
+           - Search for nearby facilities
+        
+        2. Route Planning:
+           - Calculate optimal routes between locations
+           - Provide turn-by-turn directions
+           - Estimate travel times and distances
+           - Find alternative routes
+        
+        3. Emergency Resource Mapping:
+           - Locate emergency shelters
+           - Find hospitals and medical facilities
+           - Identify cooling/warming centers
+           - Map evacuation routes
+           - Find gas stations, pharmacies, grocery stores
+        
+        4. Distance and Travel Time Calculations:
+           - Calculate distances between multiple points
+           - Estimate evacuation times
+           - Identify traffic conditions
+           - Plan resource distribution routes
+        
+        **Use Cases for Emergency Management:**
+        
+        **Evacuation Planning:**
+        - Map evacuation routes from affected areas to shelters
+        - Calculate evacuation times for different zones
+        - Identify alternate routes if primary roads are blocked
+        
+        **Resource Deployment:**
+        - Find optimal locations for emergency supply distribution
+        - Calculate travel times for emergency responders
+        - Map service areas for mobile medical units
+        
+        **Shelter and Facility Location:**
+        - Find all emergency shelters within a radius
+        - Locate hospitals with emergency departments
+        - Identify cooling centers during heat waves
+        - Find warming centers during winter storms
+        
+        Present all results with:
+        - Clear addresses and coordinates
+        - Distance and travel time estimates
+        - Specific directions when relevant
+        - Alternative options when available
+        
+        Current state: { map_data? } { routes? } { locations? }
+        """,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.2,
+    ),
+    tools=[
+        MCPToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command='npx',
+                    args=[
+                        "-y",
+                        "@modelcontextprotocol/server-google-maps",
+                    ],
+                    env={
+                        "GOOGLE_MAPS_API_KEY": google_maps_api_key
+                    }
+                ),
+                timeout=15,
+            ),
+        )
+    ] if google_maps_api_key else []
+)
 
 # BigQuery Data Agent - Queries historical weather, demographic, and geographic data
 bigquery_data_agent = Agent(
@@ -284,6 +376,7 @@ root_agent = Agent(
         1. Greet the user and explain your capabilities
         2. Understand the user's query and identify required data:
            - Image uploaded? → Route to image_analysis_agent
+           - Mapping/directions/location services? → Route to google_maps_agent
            - Weather forecast needed? → Route to nws_forecast_agent
            - Historical/demographic data needed? → Route to bigquery_data_agent
            - Both + analysis needed? → Route to both agents, then correlation_insights_agent
@@ -291,6 +384,9 @@ root_agent = Agent(
         Routing logic:
         - If user uploads an image or asks about damage assessment from a photo
           → Route to image_analysis_agent
+        
+        - If user asks about mapping, directions, routes, or finding locations
+          → Route to google_maps_agent
         
         - If user asks about current weather, forecast, or alerts
           → Route to nws_forecast_agent
@@ -306,21 +402,27 @@ root_agent = Agent(
         1. [User uploads image of flooded street] "What's the severity of this flooding?"
            → image_analysis_agent (analyze flood depth, hazards, recommend actions)
         
-        2. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
+        2. "Find the nearest emergency shelters to downtown Miami"
+           → google_maps_agent (search for shelters, provide addresses and directions)
+        
+        3. "What's the fastest evacuation route from Tampa to Orlando?"
+           → google_maps_agent (calculate routes, travel times, alternatives)
+        
+        4. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
             have a history of major flooding and high elderly populations?"
            → nws_forecast_agent (get hurricane path)
            → bigquery_data_agent (get census tracts, flood history, elderly population)
            → correlation_insights_agent (calculate risk scores, prioritize evacuations)
         
-        3. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
+        5. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
            → nws_forecast_agent (get 48-hour forecast)
            → bigquery_data_agent (get historical heat wave data)
            → correlation_insights_agent (compare and recommend cooling centers)
         
-        4. "What's the weather forecast for Miami this weekend?"
+        6. "What's the weather forecast for Miami this weekend?"
            → nws_forecast_agent (simple forecast query)
         
-        5. "Show me census tracts with high elderly populations in Houston"
+        7. "Show me census tracts with high elderly populations in Houston"
            → bigquery_data_agent (demographic query)
         
         Key principles:
@@ -344,9 +446,12 @@ root_agent = Agent(
         - Insights: { insights? }
         - Image Analysis: { image_analysis? }
         - Identified Hazards: { identified_hazards? }
+        - Map Data: { map_data? }
+        - Routes: { routes? }
+        - Locations: { locations? }
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
+    sub_agents=[google_maps_agent, image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )
