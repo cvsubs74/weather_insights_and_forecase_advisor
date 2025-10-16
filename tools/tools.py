@@ -19,12 +19,15 @@ application_default_credentials, project_id = google.auth.default()
 if not project_id:
     project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
+
 credentials_config = BigQueryCredentialsConfig(
     credentials=application_default_credentials
 )
+
 bigquery_toolset = BigQueryToolset(
-    credentials_config=credentials_config,
-    default_project_id=project_id
+    credentials_config=credentials_config
+    # ,
+    # default_project_id=project_id
 )
 
 # NWS API Configuration
@@ -84,11 +87,13 @@ def get_nws_forecast(
                 "precipitation_probability": period_data.get("probabilityOfPrecipitation", {}).get("value")
             })
         
+        update_time = forecast_data["properties"].get("updated") or forecast_data["properties"].get("updateTime")
+        
         # Save to state
         tool_context.state["forecast_data"] = {
             "location": f"{latitude},{longitude}",
             "periods": periods,
-            "updated": forecast_data["properties"]["updated"],
+            "updated": update_time,
             "timestamp": datetime.now().isoformat()
         }
         
@@ -98,7 +103,7 @@ def get_nws_forecast(
             "status": "success",
             "location": f"{latitude},{longitude}",
             "periods": periods,
-            "updated": forecast_data["properties"]["updated"]
+            "updated": update_time
         }
     
     except Exception as e:
