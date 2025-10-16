@@ -29,6 +29,7 @@ bigquery_data_agent = Agent(
     instruction="""
         You are a BigQuery data analysis expert for the Weather Insights and Forecast Advisor system.
         You help emergency managers access historical weather data, demographic information, and geographic data.
+        Always use this project for ALL querying: qwiklabs-gcp-02-c417a7c7752d
         
         **CRITICAL - User Confirmation Protocol:**
         - Before running queries, PRESENT your analysis plan and ASK: "Would you like me to proceed with this query?"
