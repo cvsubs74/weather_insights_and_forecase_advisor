@@ -1,11 +1,7 @@
 import os
-import sys
 import logging
 
-sys.path.append("../..")
-from agents.adk_multiagent_systems.callback_logging import log_query_to_model, log_model_response
 from dotenv import load_dotenv
-import google.cloud.logging
 from google.adk import Agent
 from google.genai import types
 from google.adk.tools.agent_tool import AgentTool
@@ -73,8 +69,6 @@ bigquery_data_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    before_model_callback=log_query_to_model,
-    after_model_callback=log_model_response,
     tools=[bigquery_toolset]
 )
 
@@ -135,8 +129,6 @@ nws_forecast_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    before_model_callback=log_query_to_model,
-    after_model_callback=log_model_response,
     tools=[get_nws_forecast, get_hourly_forecast, get_nws_alerts, get_current_conditions, get_hurricane_track]
 )
 
@@ -203,8 +195,6 @@ correlation_insights_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    before_model_callback=log_query_to_model,
-    after_model_callback=log_model_response,
     tools=[]  # Insights agent uses data from state, no external tools needed
 )
 
@@ -279,7 +269,5 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[bigquery_data_agent, nws_forecast_agent, correlation_insights_agent],
-    before_model_callback=log_query_to_model,
-    after_model_callback=log_model_response,
+    sub_agents=[bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )
