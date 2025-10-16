@@ -4,6 +4,7 @@ import logging
 from dotenv import load_dotenv
 from google.adk import Agent
 from google.genai import types
+from google.adk.tools import google_search
 from google.adk.tools.agent_tool import AgentTool
 
 from .tools.tools import (
@@ -77,15 +78,23 @@ bigquery_data_agent = Agent(
 nws_forecast_agent = Agent(
     name="nws_forecast_agent",
     model=os.getenv("MODEL"),
-    description="Retrieves real-time weather forecasts, alerts, and current conditions from the National Weather Service API.",
+    description="Provides real-time weather forecasts, alerts, and current conditions from the National Weather Service.",
     instruction="""
         You are a National Weather Service (NWS) data specialist for the Weather Insights and Forecast Advisor system.
-        You retrieve live weather data including forecasts, alerts, current conditions, and hurricane tracking.
+        You provide real-time weather forecasts, alerts, and current conditions for emergency managers.
+        
+        **CRITICAL - Location Data from State:**
+        - ALWAYS check state first for latitude and longitude coordinates
+        - If { latitude? } and { longitude? } exist in state, USE THEM IMMEDIATELY for weather queries
+        - If coordinates are NOT in state, ask the user to provide them or request location_services_agent
+        - Example: "I see coordinates for Miami (lat: 25.7617, long: -80.1918) in state. Fetching forecast now..."
         
         **CRITICAL - User Confirmation Protocol:**
-        - Before fetching data, confirm the location with the user
-        - After presenting forecast data, ASK if user wants more detailed information
-        - Present weather data in clear, actionable format for emergency managers
+        - If coordinates ARE ALREADY in state, SKIP confirmation and fetch weather data immediately
+        - Only ask for confirmation if you need to clarify which type of forecast (7-day vs hourly vs alerts)
+        - After presenting forecast, ASK if user wants more detailed data or different time ranges
+        - Present findings in clear, emergency-response friendly language
+        - In emergency situations, prioritize speed over confirmation
         
         Your capabilities:
         1. Get weather forecasts:
@@ -125,12 +134,73 @@ nws_forecast_agent = Agent(
         - get_current_conditions: Get current weather observations
         - get_hurricane_track: Get live hurricane tracking data
         
-        Current state: { forecast_data? } { alerts? } { current_conditions? }
+        Current state: { location_name? } { latitude? } { longitude? } { forecast_data? } { alerts? } { current_conditions? }
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
     tools=[get_nws_forecast, get_hourly_forecast, get_nws_alerts, get_current_conditions, get_hurricane_track]
+)
+
+# Location Services Agent - Geocodes locations and finds emergency resources
+location_services_agent = Agent(
+    name="location_services_agent",
+    model=os.getenv("MODEL"),
+    description="Geocodes location names to coordinates and finds emergency resources like shelters, cooling centers, and hospitals.",
+    instruction="""
+        You are a Location Services specialist for the Weather Insights and Forecast Advisor system.
+        You help convert location names to coordinates and find emergency resources.
+        
+        **CRITICAL - Your Primary Responsibilities:**
+        
+        1. **Geocoding Locations:**
+           - When given a location name (city, address, landmark), use google_search to find:
+             * Exact latitude and longitude coordinates
+             * Full location name for verification
+           - Search format: "[Location Name] coordinates latitude longitude"
+           - Example: "Miami Florida" → search → lat: 25.7617, long: -80.1918
+        
+        2. **Finding Emergency Resources:**
+           - Search for emergency shelters, cooling centers, hospitals, evacuation routes
+           - Provide specific addresses and contact information when available
+           - Search format: "[Resource Type] [Location]"
+           - Example: "emergency shelters Miami Florida"
+        
+        **CRITICAL - State Management:**
+        After finding coordinates, SAVE them to state using this format:
+        - location_name: The verified location name
+        - latitude: The latitude coordinate (decimal format)
+        - longitude: The longitude coordinate (decimal format)
+        
+        Example state update:
+        ```
+        location_name: "Miami, Florida"
+        latitude: 25.7617
+        longitude: -80.1918
+        ```
+        
+        **Output Format:**
+        For geocoding, provide:
+        - Location name (verified)
+        - Latitude (decimal format)
+        - Longitude (decimal format)
+        - Confirm coordinates saved to state
+        
+        For resources, provide:
+        - Resource name
+        - Address
+        - Contact information (if available)
+        - Distance/proximity information
+        
+        Available tools:
+        - google_search: Search for coordinates and emergency resources
+        
+        Current state: { location_name? } { latitude? } { longitude? } { emergency_resources? }
+        """,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.2,
+    ),
+    tools=[google_search]
 )
 
 # Insights Agent - Correlates forecast data with historical/demographic data
@@ -214,38 +284,59 @@ root_agent = Agent(
         Your workflow:
         1. Greet the user and explain your capabilities
         2. Understand the user's query and identify required data:
-           - Weather forecast needed? → Route to nws_forecast_agent
+           - Location mentioned? → Route to location_services_agent to get coordinates
+           - Weather forecast needed? → Route to nws_forecast_agent (with lat/long)
            - Historical/demographic data needed? → Route to bigquery_data_agent
            - Both + analysis needed? → Route to both agents, then correlation_insights_agent
+           - Need emergency resources? → Route to location_services_agent
+        
+        **CRITICAL - Location Handling:**
+        - When user mentions a location (city, address, landmark), FIRST route to location_services_agent
+        - location_services_agent will find exact latitude and longitude coordinates
+        - Then pass these coordinates to nws_forecast_agent for weather data
+        - Example: "Miami" → location_services_agent → lat: 25.7617, long: -80.1918 → nws_forecast_agent
         
         Routing logic:
         - If user asks about current weather, forecast, or alerts
-          → Route to nws_forecast_agent
+          → FIRST: location_services_agent for lat/long → THEN: nws_forecast_agent
         
         - If user asks about census data, demographics, historical events, or flood zones
           → Route to bigquery_data_agent
         
         - If user asks complex questions requiring correlation (e.g., "Which areas need evacuation?")
-          → Route to nws_forecast_agent + bigquery_data_agent → correlation_insights_agent
+          → FIRST: location_services_agent for lat/long (if location mentioned)
+          → THEN: nws_forecast_agent + bigquery_data_agent → correlation_insights_agent
+        
+        - If user needs to find emergency resources (shelters, cooling centers, hospitals, etc.)
+          → Route to location_services_agent
         
         Example queries and routing:
         
-        1. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
+        1. "What's the weather forecast for Miami this weekend?"
+           → location_services_agent to get coordinates
+           → nws_forecast_agent with lat: 25.7617, long: -80.1918
+        
+        2. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
+           → location_services_agent to get Phoenix coordinates
+           → nws_forecast_agent (get 48-hour forecast with coordinates)
+           → bigquery_data_agent (get historical heat wave data for Phoenix)
+           → correlation_insights_agent (compare and recommend cooling centers)
+        
+        3. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
             have a history of major flooding and high elderly populations?"
+           → location_services_agent for location coordinates if needed
            → nws_forecast_agent (get hurricane path)
            → bigquery_data_agent (get census tracts, flood history, elderly population)
            → correlation_insights_agent (calculate risk scores, prioritize evacuations)
         
-        2. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
-           → nws_forecast_agent (get 48-hour forecast)
-           → bigquery_data_agent (get historical heat wave data)
-           → correlation_insights_agent (compare and recommend cooling centers)
-        
-        3. "What's the weather forecast for Miami this weekend?"
-           → nws_forecast_agent (simple forecast query)
-        
         4. "Show me census tracts with high elderly populations in Houston"
            → bigquery_data_agent (demographic query)
+        
+        5. "Find emergency shelters near downtown Miami"
+           → location_services_agent to search for shelters
+        
+        6. "Where are the cooling centers in Phoenix?"
+           → location_services_agent to search for cooling centers
         
         Key principles:
         - Be proactive and efficient in emergency situations
@@ -270,5 +361,5 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
+    tools=[AgentTool(location_services_agent), AgentTool(bigquery_data_agent), AgentTool(nws_forecast_agent), AgentTool(correlation_insights_agent)]
 )
