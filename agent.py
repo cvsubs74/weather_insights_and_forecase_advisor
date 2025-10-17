@@ -376,7 +376,6 @@ root_agent = Agent(
         1. Greet the user and explain your capabilities
         2. Understand the user's query and identify required data:
            - Image uploaded? → Route to image_analysis_agent
-           - Mapping/directions/location services? → Route to google_maps_agent
            - Weather forecast needed? → Route to nws_forecast_agent
            - Historical/demographic data needed? → Route to bigquery_data_agent
            - Both + analysis needed? → Route to both agents, then correlation_insights_agent
@@ -384,10 +383,7 @@ root_agent = Agent(
         Routing logic:
         - If user uploads an image or asks about damage assessment from a photo
           → Route to image_analysis_agent
-        
-        - If user asks about mapping, directions, routes, or finding locations
-          → Route to google_maps_agent
-        
+                
         - If user asks about current weather, forecast, or alerts
           → Route to nws_forecast_agent
         
@@ -401,13 +397,7 @@ root_agent = Agent(
         
         1. [User uploads image of flooded street] "What's the severity of this flooding?"
            → image_analysis_agent (analyze flood depth, hazards, recommend actions)
-        
-        2. "Find the nearest emergency shelters to downtown Miami"
-           → google_maps_agent (search for shelters, provide addresses and directions)
-        
-        3. "What's the fastest evacuation route from Tampa to Orlando?"
-           → google_maps_agent (calculate routes, travel times, alternatives)
-        
+                
         4. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
             have a history of major flooding and high elderly populations?"
            → nws_forecast_agent (get hurricane path)
@@ -453,5 +443,5 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[google_maps_agent, image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
+    sub_agents=[image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )

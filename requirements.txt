@@ -3,3 +3,4 @@ google-cloud-bigquery>=3.10.0
 google-cloud-logging
 python-dotenv
 requests>=2.31.0
+
