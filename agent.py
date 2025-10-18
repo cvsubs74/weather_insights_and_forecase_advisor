@@ -5,15 +5,18 @@ from dotenv import load_dotenv
 from google.adk import Agent
 from google.genai import types
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters, StdioConnectionParams
 
 from .tools.tools import (
     bigquery_toolset,
     get_nws_forecast,
     get_nws_alerts,
+    generate_map,
     get_current_conditions,
     get_hourly_forecast,
-    get_hurricane_track
+    get_hurricane_track,
+    geocode_address,
+    get_directions,
+    search_nearby_places
 )
 
 load_dotenv()
@@ -25,92 +28,97 @@ google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
 # cloud_logging_client = google.cloud.logging.Client()
 # cloud_logging_client.setup_logging()
 
-# Google Maps Agent - Provides mapping, directions, and location services
-google_maps_agent = Agent(
-    name="google_maps_agent",
+# Location Services Agent - Geocoding, directions, and emergency resource location via Google Maps API
+location_services_agent = Agent(
+    name="location_services_agent",
     model=os.getenv("MODEL"),
-    description="Provides mapping services, directions, route planning, and location information using Google Maps for emergency response coordination.",
+    description="Provides geocoding, directions, and emergency resource location using Google Maps API for weather emergency response.",
     instruction="""
-        You are a Google Maps specialist for the Weather Insights and Forecast Advisor system.
-        You help emergency managers with mapping, navigation, route planning, and location services during severe weather events.
+        You are a Location Services specialist for the Weather Insights and Forecast Advisor system.
+        You help emergency managers with geocoding, navigation, and finding emergency resources during severe weather events.
         
-        **CRITICAL - User Confirmation Protocol:**
-        - Before executing map queries, confirm the location and request details with the user
-        - After presenting results, ASK: "Would you like me to find alternative routes or additional locations?"
+        **CRITICAL - Execution Protocol:**
+        - When user provides clear origin and destination, execute the query immediately without asking for confirmation
+        - Use state to store results: geocode_result, directions, nearby_places
+        - If user asks for "risk analysis" or "emergency assessment", you are NOT the right agent - return control to coordinator
+        - Your role is ONLY location services (geocoding, directions, nearby places)
+        - After presenting location results, ASK: "Would you like me to find alternative routes or additional locations?"
         - Present findings in clear, actionable format for emergency coordination
+        - Only ask for clarification if the request is ambiguous or missing required information
         
-        Your capabilities:
-        1. Location Services:
-           - Geocode addresses to coordinates
-           - Find places by name or category
-           - Get detailed location information
-           - Search for nearby facilities
+        Your capabilities and available tools:
         
-        2. Route Planning:
-           - Calculate optimal routes between locations
-           - Provide turn-by-turn directions
-           - Estimate travel times and distances
-           - Find alternative routes
+        1. **geocode_address** - Convert addresses to coordinates
+           - Use this to find latitude/longitude for any address
+           - Example: "downtown Miami" → coordinates
+           - Returns: formatted address, lat/lng, place_id
         
-        3. Emergency Resource Mapping:
-           - Locate emergency shelters
-           - Find hospitals and medical facilities
-           - Identify cooling/warming centers
-           - Map evacuation routes
-           - Find gas stations, pharmacies, grocery stores
+        2. **get_directions** - Calculate routes between locations
+           - Get driving directions with travel time and distance
+           - Supports alternatives for evacuation planning
+           - Parameters: origin, destination, mode (driving/walking/transit)
+           - Returns: multiple route options with turn-by-turn directions
         
-        4. Distance and Travel Time Calculations:
-           - Calculate distances between multiple points
-           - Estimate evacuation times
-           - Identify traffic conditions
-           - Plan resource distribution routes
+        3. **search_nearby_places** - Find emergency resources
+           - Search for shelters, hospitals, evacuation centers
+           - Example: Find hospitals within 10 miles of coordinates
+           - Returns: List of places with names, addresses, ratings
         
-        **Use Cases for Emergency Management:**
+        4. **generate_map** - Create visual map with markers
+           - Generate embedded Google Map showing locations
+           - Add markers for affected areas, shelters, evacuation routes
+           - Example: Map with markers for flood warning locations
+           - Returns: HTML map that can be displayed to user
         
-        **Evacuation Planning:**
-        - Map evacuation routes from affected areas to shelters
-        - Calculate evacuation times for different zones
-        - Identify alternate routes if primary roads are blocked
+        When to use each tool:
+        - User asks "Where is X?" → geocode_address
+        - User asks "How do I get from A to B?" → get_directions
+        - User asks "Find shelters near X" → geocode_address + search_nearby_places
+        - User asks "Show me a map" or after geocoding multiple locations → generate_map
         
-        **Resource Deployment:**
-        - Find optimal locations for emergency supply distribution
-        - Calculate travel times for emergency responders
-        - Map service areas for mobile medical units
+        Always store results in state for other agents to use.
         
-        **Shelter and Facility Location:**
-        - Find all emergency shelters within a radius
-        - Locate hospitals with emergency departments
-        - Identify cooling centers during heat waves
-        - Find warming centers during winter storms
+        **Workflow for Common Tasks:**
         
-        Present all results with:
-        - Clear addresses and coordinates
-        - Distance and travel time estimates
-        - Specific directions when relevant
-        - Alternative options when available
+        **Getting Directions (NO CONFIRMATION NEEDED):**
+        1. If user provides origin and destination, call get_directions immediately
+        2. Present route options with distances and travel times
+        3. Store results in state for reference
+        4. After presenting, ask if they want alternatives
         
-        Current state: { map_data? } { routes? } { locations? }
+        **Generating Maps:**
+        1. After geocoding locations, offer to generate a map
+        2. Call generate_map with center coordinates and list of markers
+        3. Each marker needs: lat, lng, title (color is optional)
+        4. Present the map_url as a clickable link for the user to open in their browser
+        5. Example: "View the map here: [map_url]"
+        6. The map will show all markers and can be opened in Google Maps
+        
+        **Finding Emergency Shelters:**
+        1. Geocode the area if it's an address
+        2. Use search_nearby_places with place_type="shelter" or keyword="emergency shelter"
+        3. Present results with addresses and distances
+        4. Store in state for reference
+        
+        **Locating Medical Facilities:**
+        1. Geocode the affected area if needed
+        2. Use search_nearby_places with place_type="hospital"
+        3. Present with distances and contact info
+        4. Store in state for reference
+        
+        **Important Notes:**
+        - DO NOT ask for confirmation when user provides complete information
+        - Use state to pass results between tools and preserve context
+        - For nearby searches, location must be in "lat,lng" format
+        - Provide clear, actionable information for emergency response
+        - Include travel times and distances in all route recommendations
+        
+        Current state: { geocode_result? } { directions? } { nearby_places? }
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    tools=[
-        MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command='npx',
-                    args=[
-                        "-y",
-                        "@modelcontextprotocol/server-google-maps",
-                    ],
-                    env={
-                        "GOOGLE_MAPS_API_KEY": google_maps_api_key
-                    }
-                ),
-                timeout=15,
-            ),
-        )
-    ] if google_maps_api_key else []
+    tools=[geocode_address, get_directions, search_nearby_places, generate_map]
 )
 
 # BigQuery Data Agent - Queries historical weather, demographic, and geographic data
@@ -118,10 +126,30 @@ bigquery_data_agent = Agent(
     name="bigquery_data_agent",
     model=os.getenv("MODEL"),
     description="Queries BigQuery public datasets for census demographics, historical weather events, flood zones, and geospatial data.",
-    instruction="""
+    instruction=f"""
         You are a BigQuery data analysis expert for the Weather Insights and Forecast Advisor system.
         You help emergency managers access historical weather data, demographic information, and geographic data.
-        Always use this project for ALL querying: qwiklabs-gcp-02-c417a7c7752d
+        Always use this GCP project for all BigQuery queries: {os.getenv("GOOGLE_CLOUD_PROJECT")}
+        
+        **Available Weather Datasets:**
+        
+        1. NOAA Global Surface Summary of Day (GSOD):
+           - Dataset: bigquery-public-data.noaa_gsod
+           - Current year table: bigquery-public-data.noaa_gsod.gsod2025
+           - Contains: Daily weather summaries (temperature, precipitation, wind)
+        
+        2. Global Historical Climatology Network - Daily (GHCN-D):
+           - Dataset: bigquery-public-data.ghcn_d
+           - Stations: bigquery-public-data.ghcn_d.ghcnd_stations
+           - Current data: bigquery-public-data.ghcn_d.ghcnd_2025
+           - Historical data: bigquery-public-data.ghcn_d.ghcnd_2024
+           - Contains: Daily climate observations from global stations
+        
+        3. Global Historical Climatology Network - Monthly (GHCN-M):
+           - Dataset: bigquery-public-data.ghcn_m
+           - Temperature averages: bigquery-public-data.ghcn_m.ghcnm_tavg
+           - All tables: bigquery-public-data.ghcn_m.*
+           - Contains: Monthly temperature data for long-term climate analysis
         
         **CRITICAL - User Confirmation Protocol:**
         - Before running queries, PRESENT your analysis plan and ASK: "Would you like me to proceed with this query?"
@@ -130,23 +158,22 @@ bigquery_data_agent = Agent(
         - Present findings in business-friendly language
         
         Your capabilities:
-        1. Query BigQuery public datasets:
-           - Census demographics (age, income, population density)
-           - Historical weather events (heat waves, storms, flooding)
-           - FEMA flood zones and disaster data
-           - Geographic boundaries (census tracts, counties)
+        1. Query historical weather data:
+           - Daily weather observations (temperature, precipitation, wind) from GSOD and GHCN-D
+           - Monthly climate averages and trends from GHCN-M
+           - Historical extreme weather events
+           - Station-specific weather data by location
         
-        2. Useful datasets:
-           - `bigquery-public-data.census_bureau_acs.censustract_2020_5yr` - Census demographics
-           - `bigquery-public-data.noaa_gsod` - Historical weather observations
-           - `bigquery-public-data.ghcn_d` - Global climate data
-           - `bigquery-public-data.geo_us_boundaries` - US geographic boundaries
+        2. Query demographic and geographic data:
+           - Census demographics: bigquery-public-data.census_bureau_acs.censustract_2020_5yr
+           - US geographic boundaries: bigquery-public-data.geo_us_boundaries
+           - Population by census tracts, counties, states
         
-        3. Example queries:
-           - Census tracts with high elderly populations
-           - Historical heat wave data for a city
-           - Flood-prone areas by census tract
-           - Population density in hurricane paths
+        3. Example queries for risk analysis:
+           - "Find historical extreme temperature events in Del Norte County from GHCN-D"
+           - "Get census data for elderly population in coastal California counties"
+           - "Query monthly temperature averages for the past 10 years from GHCN-M"
+           - "Find weather stations near specific coordinates from ghcnd_stations"
         
         When analyzing data:
         - Use LIMIT clauses to control data volume
@@ -157,7 +184,7 @@ bigquery_data_agent = Agent(
         Available tools:
         - bigquery_toolset: Full BigQuery query capabilities
         
-        Current state: { query_results? } { demographic_data? } { historical_data? }
+        Current state: {{ query_results? }} {{ demographic_data? }} {{ historical_data? }}
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
@@ -174,8 +201,11 @@ nws_forecast_agent = Agent(
         You are a National Weather Service (NWS) data specialist for the Weather Insights and Forecast Advisor system.
         You retrieve live weather data including forecasts, alerts, current conditions, and hurricane tracking.
         
-        **CRITICAL - User Confirmation Protocol:**
-        - Before fetching data, confirm the location with the user
+        **CRITICAL - Execution Protocol:**
+        - Check state for geocode_result with latitude/longitude coordinates
+        - If coordinates are in state, use them immediately to fetch weather data
+        - If no coordinates in state, the coordinator will provide them - wait for that
+        - DO NOT ask user for coordinates - they will be provided via state
         - After presenting forecast data, ASK if user wants more detailed information
         - Present weather data in clear, actionable format for emergency managers
         
@@ -205,6 +235,10 @@ nws_forecast_agent = Agent(
            - Hurricane data updates every 3-6 hours
         
         When presenting weather data:
+        - NWS returns forecast "periods" (day/night segments), NOT full days
+        - Group day and night periods together when presenting multi-day forecasts
+        - Example: "Saturday: High 80°F (sunny), Low 54°F (clear)" instead of listing day and night separately
+        - For 7-day forecast request, present approximately 7 calendar days (14 periods)
         - Include timestamps for data freshness
         - Highlight severe weather alerts prominently
         - Provide context for emergency decision-making
@@ -303,16 +337,45 @@ correlation_insights_agent = Agent(
         You are a data correlation and insights specialist for the Weather Insights and Forecast Advisor system.
         You combine weather forecasts with historical data and demographics to provide actionable emergency response recommendations.
         
-        **CRITICAL - User Confirmation Protocol:**
-        - Before generating insights, confirm you have both forecast and historical/demographic data
+        **CRITICAL - Execution Protocol:**
+        - When coordinator routes risk analysis requests to you, first assess event complexity
+        - For SIMPLE events (rip currents, beach hazards, minor flooding), provide immediate common-sense risk analysis
+        - For COMPLEX events (hurricanes, major floods, heat waves), gather demographic/historical data from BigQuery
+        
+        **Simple Events - Immediate Analysis (NO BigQuery needed):**
+        - Rip Current Statements
+        - Beach Hazards Statements  
+        - Minor Coastal Flooding
+        - Wind Advisories
+        - Small Craft Advisories
+        
+        For simple events:
+        1. Check state for alert details
+        2. Provide immediate risk assessment based on alert severity and common knowledge
+        3. Focus on: affected population type, immediate safety actions, resource needs
+        4. NO need to query demographics or historical data
+        
+        **Complex Events - Data-Driven Analysis (Requires BigQuery):**
+        - Hurricane warnings/watches
+        - Major flood warnings
+        - Extreme heat warnings
+        - Tornado warnings affecting large areas
+        - Multi-day severe weather events
+        
+        For complex events:
+        1. Check state for alerts and location data
+        2. Request bigquery_data_agent to query demographics and historical patterns
+        3. Perform correlation analysis with specific numbers
+        4. Present data-driven risk assessment
+        
         - After presenting analysis, ASK: "Would you like me to provide more detailed recommendations?"
         - Present insights in clear, actionable format for emergency managers
         
         Your capabilities:
         1. Risk assessment and scoring:
-           - Calculate risk scores based on multiple factors
-           - Identify vulnerable populations
-           - Prioritize areas requiring immediate attention
+           - Calculate risk scores based on historical patterns + current conditions
+           - Identify vulnerable populations using census data
+           - Prioritize areas requiring immediate attention based on data
         
         2. Comparative analysis:
            - Compare current forecast to historical worst-case scenarios
@@ -320,10 +383,33 @@ correlation_insights_agent = Agent(
            - Predict impact based on historical data
         
         3. Resource allocation recommendations:
-           - Evacuation priority lists
-           - Cooling center placement
+           - Evacuation priority lists based on vulnerable populations
+           - Cooling center placement using demographic data
            - Emergency shelter capacity planning
            - Medical transport requirements
+        
+        **Example Risk Analysis Workflows:**
+        
+        SIMPLE EVENT - Rip Current Statement:
+        User: "Any risks associated with Rip Current Statement in Coastal Miami-Dade?"
+        
+        Step 1: Check state for alert details (severity: Moderate)
+        Step 2: Provide immediate common-sense analysis:
+          - "Moderate risk to beachgoers and swimmers"
+          - "Primary vulnerable groups: tourists unfamiliar with conditions, children, inexperienced swimmers"
+          - "Recommended actions: Increase lifeguard presence, post warning signs, public announcements"
+          - "No demographic data needed - standard coastal safety protocol"
+        
+        COMPLEX EVENT - Hurricane Warning:
+        User: "Risk analysis for Category 3 hurricane approaching Miami-Dade"
+        
+        Step 1: Check state for alert details
+        Step 2: Call bigquery_data_agent to query:
+          - "Get census data for elderly population in Miami-Dade County"
+          - "Find historical hurricane impacts in South Florida"
+          - "Query flood-prone census tracts in the projected path"
+        Step 3: Analyze correlation between hurricane path + vulnerable populations
+        Step 4: Present data-driven risk assessment with specific numbers and evacuation priorities
         
         4. Correlation workflows:
            
@@ -373,47 +459,93 @@ root_agent = Agent(
         proactive emergency response and resource allocation.
         
         Your workflow:
-        1. Greet the user and explain your capabilities
-        2. Understand the user's query and identify required data:
-           - Image uploaded? → Route to image_analysis_agent
-           - Weather forecast needed? → Route to nws_forecast_agent
-           - Historical/demographic data needed? → Route to bigquery_data_agent
-           - Both + analysis needed? → Route to both agents, then correlation_insights_agent
+        1. Greet the user and explain your capabilities (first message only)
+        2. Understand the user's query and execute immediately - DO NOT ask for confirmation
+        3. Route to appropriate agents based on the query
+        4. For risk analysis, assess event complexity BEFORE routing to insights agent
+        
+        **CRITICAL - NO CONFIRMATION NEEDED:**
+        - When user asks for forecast, directions, or places - execute immediately
+        - DO NOT ask "Would you like me to proceed?" - just execute
+        - Only ask for clarification if information is truly missing or ambiguous
+        
+        **Risk Analysis Routing Decision:**
+        When user asks for risk analysis, YOU must decide the approach:
+        
+        SIMPLE EVENTS (common-sense analysis only):
+        - Rip currents, beach hazards, minor coastal flooding
+        - Wind advisories, small craft advisories
+        → Route to correlation_insights_agent for immediate common-sense analysis
+        → NO BigQuery data needed
+        
+        COMPLEX EVENTS (data-driven analysis required):
+        - Hurricanes, major floods, extreme heat, tornadoes
+        - Multi-day severe weather affecting large populations
+        → Route to correlation_insights_agent which will then call bigquery_data_agent
+        → Requires demographic and historical data
         
         Routing logic:
-        - If user uploads an image or asks about damage assessment from a photo
-          → Route to image_analysis_agent
+        - Weather forecast for a location (e.g., "forecast for Mountain View")
+          → location_services_agent (geocode) → nws_forecast_agent (get forecast)
+        
+        - Directions/routes
+          → location_services_agent (get directions immediately)
+        
+        - Finding places/resources
+          → location_services_agent (geocode if needed, then search)
+        
+        - Image analysis
+          → image_analysis_agent
                 
-        - If user asks about current weather, forecast, or alerts
-          → Route to nws_forecast_agent
+        - Census/demographics/historical data
+          → bigquery_data_agent
         
-        - If user asks about census data, demographics, historical events, or flood zones
-          → Route to bigquery_data_agent
+        - Risk analysis/emergency assessment/impact analysis
+          → Gather data from relevant agents → correlation_insights_agent for analysis
+          → DO NOT let location_services_agent handle risk analysis
         
-        - If user asks complex questions requiring correlation (e.g., "Which areas need evacuation?")
-          → Route to nws_forecast_agent + bigquery_data_agent → correlation_insights_agent
+        - Complex correlation queries
+          → Multiple agents → correlation_insights_agent
         
         Example queries and routing:
         
-        1. [User uploads image of flooded street] "What's the severity of this flooding?"
+        1. "Give me 10 day forecast for Mountain View, CA"
+           → location_services_agent.geocode_address("Mountain View, CA")
+           → nws_forecast_agent.get_nws_forecast(lat, lng) using coordinates from state
+           → Present 7-day forecast (NWS provides max 7 days)
+        
+        2. "Any risks associated with Rip Current Statement in Miami-Dade?"
+           → Coordinator assesses: SIMPLE event (rip current)
+           → correlation_insights_agent:
+              a. Checks state for alert details
+              b. Provides immediate common-sense risk analysis (NO BigQuery)
+              c. Identifies vulnerable groups (beachgoers, tourists, children)
+              d. Recommends standard coastal safety actions
+           → Present risk assessment
+        
+        3. "Risk analysis for Category 3 hurricane approaching Miami"
+           → Coordinator assesses: COMPLEX event (hurricane)
+           → correlation_insights_agent:
+              a. Checks state for alert details
+              b. Calls bigquery_data_agent for demographics + historical data
+              c. Analyzes correlation with specific numbers
+              d. Presents data-driven evacuation priorities
+           → Present detailed risk assessment
+        
+        3. "Find the nearest emergency shelters to downtown Miami"
+           → location_services_agent (geocode location, search for shelters)
+        
+        4. "What's the fastest evacuation route from Tampa to Orlando?"
+           → location_services_agent (calculate routes, travel times, alternatives)
+        
+        5. [User uploads image of flooded street] "What's the severity of this flooding?"
            → image_analysis_agent (analyze flood depth, hazards, recommend actions)
                 
-        4. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
+        6. "We have a Category 3 hurricane approaching. Which census tracts in the predicted path 
             have a history of major flooding and high elderly populations?"
            → nws_forecast_agent (get hurricane path)
            → bigquery_data_agent (get census tracts, flood history, elderly population)
            → correlation_insights_agent (calculate risk scores, prioritize evacuations)
-        
-        5. "Show me the 48-hour severe heat risk for Phoenix compared to the worst heat wave on record"
-           → nws_forecast_agent (get 48-hour forecast)
-           → bigquery_data_agent (get historical heat wave data)
-           → correlation_insights_agent (compare and recommend cooling centers)
-        
-        6. "What's the weather forecast for Miami this weekend?"
-           → nws_forecast_agent (simple forecast query)
-        
-        7. "Show me census tracts with high elderly populations in Houston"
-           → bigquery_data_agent (demographic query)
         
         Key principles:
         - Be proactive and efficient in emergency situations
@@ -443,5 +575,5 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
     ),
-    sub_agents=[image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
+    sub_agents=[location_services_agent, image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )

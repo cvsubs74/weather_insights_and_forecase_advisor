@@ -311,3 +311,344 @@ def get_hurricane_track(
             "status": "error",
             "message": f"Failed to get hurricane data: {str(e)}"
         }
+
+
+# Google Maps API Configuration
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+GOOGLE_MAPS_BASE = "https://maps.googleapis.com/maps/api"
+
+
+def geocode_address(
+    tool_context: ToolContext,
+    address: str
+) -> Dict[str, Any]:
+    """Geocode an address to latitude/longitude coordinates using Google Maps Geocoding API.
+    
+    Args:
+        address (str): Address to geocode (e.g., "1600 Amphitheatre Parkway, Mountain View, CA")
+        
+    Returns:
+        dict: Geocoding results with coordinates and formatted address
+    """
+    try:
+        if not GOOGLE_MAPS_API_KEY:
+            return {
+                "status": "error",
+                "message": "GOOGLE_MAPS_API_KEY not configured"
+            }
+        
+        # Call Google Maps Geocoding API
+        geocode_url = f"{GOOGLE_MAPS_BASE}/geocode/json"
+        params = {
+            "address": address,
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        
+        response = requests.get(geocode_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data["status"] != "OK":
+            return {
+                "status": "error",
+                "message": f"Geocoding failed: {data.get('status')}"
+            }
+        
+        # Extract first result
+        result = data["results"][0]
+        location = result["geometry"]["location"]
+        
+        geocode_result = {
+            "address": address,
+            "formatted_address": result["formatted_address"],
+            "latitude": location["lat"],
+            "longitude": location["lng"],
+            "place_id": result["place_id"],
+            "types": result.get("types", [])
+        }
+        
+        # Save to state
+        tool_context.state["geocode_result"] = geocode_result
+        
+        logger.info(f"Geocoded address: {address} -> {location['lat']},{location['lng']}")
+        
+        return {
+            "status": "success",
+            "result": geocode_result
+        }
+    
+    except Exception as e:
+        logger.error(f"Error geocoding address: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to geocode address: {str(e)}"
+        }
+
+
+def get_directions(
+    tool_context: ToolContext,
+    origin: str,
+    destination: str,
+    mode: str = "driving",
+    alternatives: bool = True
+) -> Dict[str, Any]:
+    """Get directions between two locations using Google Maps Directions API.
+    
+    Args:
+        origin (str): Starting location (address or "lat,lng")
+        destination (str): Ending location (address or "lat,lng")
+        mode (str): Travel mode - "driving", "walking", "bicycling", "transit"
+        alternatives (bool): Whether to return alternative routes
+        
+    Returns:
+        dict: Directions with routes, distances, and travel times
+    """
+    try:
+        if not GOOGLE_MAPS_API_KEY:
+            return {
+                "status": "error",
+                "message": "GOOGLE_MAPS_API_KEY not configured"
+            }
+        
+        # Call Google Maps Directions API
+        directions_url = f"{GOOGLE_MAPS_BASE}/directions/json"
+        params = {
+            "origin": origin,
+            "destination": destination,
+            "mode": mode,
+            "alternatives": alternatives,
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        
+        response = requests.get(directions_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data["status"] != "OK":
+            return {
+                "status": "error",
+                "message": f"Directions failed: {data.get('status')}"
+            }
+        
+        # Extract routes
+        routes = []
+        for route in data["routes"]:
+            leg = route["legs"][0]  # First leg
+            routes.append({
+                "summary": route.get("summary", "Route"),
+                "distance": leg["distance"]["text"],
+                "distance_meters": leg["distance"]["value"],
+                "duration": leg["duration"]["text"],
+                "duration_seconds": leg["duration"]["value"],
+                "start_address": leg["start_address"],
+                "end_address": leg["end_address"],
+                "steps": [
+                    {
+                        "instruction": step["html_instructions"],
+                        "distance": step["distance"]["text"],
+                        "duration": step["duration"]["text"]
+                    }
+                    for step in leg["steps"][:5]  # First 5 steps only
+                ]
+            })
+        
+        directions_result = {
+            "origin": origin,
+            "destination": destination,
+            "mode": mode,
+            "routes": routes
+        }
+        
+        # Save to state
+        tool_context.state["directions"] = directions_result
+        
+        logger.info(f"Got directions: {origin} -> {destination}, {len(routes)} routes")
+        
+        return {
+            "status": "success",
+            "result": directions_result
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting directions: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to get directions: {str(e)}"
+        }
+
+
+def search_nearby_places(
+    tool_context: ToolContext,
+    location: str,
+    place_type: str,
+    radius: int = 5000,
+    keyword: Optional[str] = None
+) -> Dict[str, Any]:
+    """Search for nearby places using Google Maps Places API.
+    
+    Args:
+        location (str): Center point as "lat,lng"
+        place_type (str): Type of place (e.g., "hospital", "shelter", "pharmacy", "gas_station")
+        radius (int): Search radius in meters (default 5000m = 5km)
+        keyword (str): Optional keyword to refine search (e.g., "emergency")
+        
+    Returns:
+        dict: List of nearby places with details
+    """
+    try:
+        if not GOOGLE_MAPS_API_KEY:
+            return {
+                "status": "error",
+                "message": "GOOGLE_MAPS_API_KEY not configured"
+            }
+        
+        # Call Google Maps Places Nearby Search API
+        places_url = f"{GOOGLE_MAPS_BASE}/place/nearbysearch/json"
+        params = {
+            "location": location,
+            "radius": radius,
+            "type": place_type,
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        
+        if keyword:
+            params["keyword"] = keyword
+        
+        response = requests.get(places_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data["status"] not in ["OK", "ZERO_RESULTS"]:
+            return {
+                "status": "error",
+                "message": f"Places search failed: {data.get('status')}"
+            }
+        
+        # Extract places
+        places = []
+        for place in data.get("results", [])[:10]:  # Limit to 10 results
+            places.append({
+                "name": place.get("name"),
+                "address": place.get("vicinity"),
+                "location": place["geometry"]["location"],
+                "place_id": place.get("place_id"),
+                "types": place.get("types", []),
+                "rating": place.get("rating"),
+                "open_now": place.get("opening_hours", {}).get("open_now")
+            })
+        
+        search_result = {
+            "location": location,
+            "place_type": place_type,
+            "radius_meters": radius,
+            "keyword": keyword,
+            "places": places,
+            "count": len(places)
+        }
+        
+        # Save to state
+        tool_context.state["nearby_places"] = search_result
+        
+        logger.info(f"Found {len(places)} places of type '{place_type}' near {location}")
+        
+        return {
+            "status": "success",
+            "result": search_result
+        }
+    
+    except Exception as e:
+        logger.error(f"Error searching nearby places: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to search places: {str(e)}"
+        }
+
+
+def generate_map(
+    tool_context: ToolContext,
+    center_lat: float,
+    center_lng: float,
+    zoom: int = 12,
+    markers: Optional[list] = None,
+    title: str = "Map"
+) -> Dict[str, Any]:
+    """Generate a Google Maps URL with markers for visualization.
+    
+    Args:
+        center_lat (float): Latitude for map center
+        center_lng (float): Longitude for map center
+        zoom (int): Zoom level (1-20, default 12)
+        markers (list): Optional list of marker dicts with 'lat', 'lng', 'title', 'color'
+        title (str): Title for the map
+        
+    Returns:
+        dict: Google Maps URL and marker information
+    """
+    try:
+        # Build Google Maps URL with markers
+        # Format: https://www.google.com/maps/dir/?api=1&destination=lat,lng&waypoints=lat1,lng1|lat2,lng2
+        
+        if markers and len(markers) > 0:
+            # Use first marker as destination
+            first_marker = markers[0]
+            dest_lat = first_marker.get('lat', center_lat)
+            dest_lng = first_marker.get('lng', center_lng)
+            
+            # Build markers list for URL
+            marker_params = []
+            for marker in markers:
+                lat = marker.get('lat')
+                lng = marker.get('lng')
+                label = marker.get('title', 'Location')
+                if lat and lng:
+                    marker_params.append(f"{lat},{lng}")
+            
+            # Create Google Maps URL with multiple markers (map mode, not satellite)
+            if len(marker_params) == 1:
+                map_url = f"https://www.google.com/maps/search/?api=1&query={dest_lat},{dest_lng}&zoom={zoom}&map_action=map"
+            else:
+                # For multiple markers, use directions API to show all points
+                waypoints = "|".join(marker_params[1:]) if len(marker_params) > 1 else ""
+                if waypoints:
+                    map_url = f"https://www.google.com/maps/dir/?api=1&destination={marker_params[0]}&waypoints={waypoints}&map_action=map"
+                else:
+                    map_url = f"https://www.google.com/maps/search/?api=1&query={dest_lat},{dest_lng}&zoom={zoom}&map_action=map"
+        else:
+            # No markers, just center location (map mode, not satellite)
+            map_url = f"https://www.google.com/maps/search/?api=1&query={center_lat},{center_lng}&zoom={zoom}&map_action=map"
+        
+        # Store map data in state
+        tool_context.state["map_data"] = {
+            "center": {"lat": center_lat, "lng": center_lng},
+            "zoom": zoom,
+            "markers": markers or [],
+            "map_url": map_url
+        }
+        
+        # Build marker summary
+        marker_summary = []
+        if markers:
+            for i, marker in enumerate(markers, 1):
+                title = marker.get('title', f'Location {i}')
+                lat = marker.get('lat')
+                lng = marker.get('lng')
+                marker_summary.append(f"{i}. {title} ({lat}, {lng})")
+        
+        logger.info(f"Generated map URL centered at ({center_lat}, {center_lng}) with {len(markers or [])} markers")
+        
+        return {
+            "status": "success",
+            "message": f"Generated map with {len(markers or [])} marker(s)",
+            "map_url": map_url,
+            "center": {"lat": center_lat, "lng": center_lng},
+            "zoom": zoom,
+            "markers": marker_summary,
+            "instruction": "Open the map_url in a browser to view the interactive map with all markers"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error generating map: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate map: {str(e)}"
+        }
