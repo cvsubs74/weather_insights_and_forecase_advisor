@@ -12,19 +12,23 @@ The Weather Insights and Forecast Advisor is an intelligent multi-agent system d
 
 ## System Architecture
 
-The Weather Insights and Forecast Advisor follows a **Specialized Multi-Agent Pattern** with four distinct agents:
+The Weather Insights and Forecast Advisor follows a **Specialized Multi-Agent Pattern** with five distinct agents:
 
-1. **Root Agent** - User interface and query interpretation
-2. **Data Agent** - BigQuery integration for historical and demographic data
-3. **Forecast Agent** - NWS API integration for weather forecasts
-4. **Insights Agent** - Data correlation and actionable recommendations
+1. **Root Coordinator Agent** - User interface and intelligent query routing
+2. **Location Services Agent** - Google Maps API integration for geocoding, directions, and emergency resources
+3. **NWS Forecast Agent** - National Weather Service API for real-time weather data
+4. **BigQuery Data Agent** - Historical weather and demographic data analysis
+5. **Correlation Insights Agent** - Two-tier risk analysis (simple vs complex events)
 
 ### Architecture Pattern
 
 ```
-User Query → Root Agent → Route to Specialist Agents → Insights Agent → Response
-                ↓                    ↓                        ↓
-           Interpret Intent    Data + Forecast         Correlate & Analyze
+User Query → Root Coordinator → Route to Specialist Agents → Insights Agent → Response
+                ↓                         ↓                           ↓
+         Assess Complexity    Location + Forecast + Data    Simple or Data-Driven Analysis
+                                      ↓
+                              Google Maps Integration
+                         (Geocoding, Directions, Maps)
 ```
 
 ---
@@ -84,7 +88,7 @@ User Query → Root Agent → Route to Specialist Agents → Insights Agent → 
 
 ## Component Details
 
-### 1. Root Agent: `weather_advisor_coordinator`
+### 1. Root Coordinator Agent: `weather_advisor_coordinator`
 
 **Purpose:** Entry point that greets users, interprets queries, and orchestrates the workflow
 
@@ -98,18 +102,26 @@ User Query → Root Agent → Route to Specialist Agents → Insights Agent → 
 
 **Routing Logic:**
 ```python
+if query requires location/geocoding:
+    → Call location_services_agent
 if query requires weather forecast:
-    → Call forecast_agent
-if query requires historical/demographic data:
-    → Call data_agent
-if query requires both + analysis:
-    → Call forecast_agent + data_agent → insights_agent
+    → Call location_services_agent (geocode) → nws_forecast_agent
+if query requires risk analysis:
+    if simple_event (rip currents, beach hazards):
+        → Call correlation_insights_agent (common-sense analysis)
+    if complex_event (hurricanes, major floods):
+        → Call correlation_insights_agent → bigquery_data_agent (data-driven)
+if query requires directions/routes:
+    → Call location_services_agent
+if query requires map visualization:
+    → Call location_services_agent.generate_map()
 ```
 
 **Configuration:**
 - Model: `gemini-2.5-flash`
 - Temperature: `0.3` (balanced creativity and consistency)
-- Sub-agents: `data_agent`, `forecast_agent`, `insights_agent`
+- Sub-agents: `location_services_agent`, `nws_forecast_agent`, `bigquery_data_agent`, `correlation_insights_agent`
+- Execution: Proactive, no confirmation prompts for standard queries
 
 **Example Interactions:**
 - "What's the weather forecast for Miami this weekend?"
@@ -118,7 +130,98 @@ if query requires both + analysis:
 
 ---
 
-### 2. Data Agent: `bigquery_data_agent`
+### 2. Location Services Agent: `location_services_agent`
+
+**Purpose:** Provide geocoding, directions, emergency resource location, and map generation using Google Maps API
+
+**Key Capabilities:**
+- Geocode addresses to coordinates
+- Calculate driving directions with multiple route options
+- Search for nearby emergency resources (shelters, hospitals)
+- Generate interactive map URLs with markers
+- Support evacuation route planning
+
+**Google Maps API Integration:**
+
+1. **Geocoding API:**
+   - Convert addresses to latitude/longitude coordinates
+   - Reverse geocoding (coordinates to address)
+   - Returns: formatted address, coordinates, place_id
+
+2. **Directions API:**
+   - Calculate routes between locations
+   - Multiple route alternatives
+   - Travel time and distance estimates
+   - Support for different travel modes (driving, walking, transit)
+
+3. **Places API:**
+   - Search for nearby emergency resources
+   - Filter by place type (hospital, shelter, pharmacy)
+   - Radius-based searches
+   - Returns: name, address, rating, distance
+
+4. **Maps JavaScript API:**
+   - Generate Google Maps URLs with markers
+   - Support multiple markers for affected areas
+   - Visual representation of emergency zones
+   - Color-coded markers (red for hazards, blue for shelters)
+
+**Tools:**
+- `geocode_address(address)` - Convert address to coordinates
+- `get_directions(origin, destination, mode)` - Calculate routes
+- `search_nearby_places(location, place_type, radius)` - Find emergency resources
+- `generate_map(center_lat, center_lng, markers, zoom)` - Create map URLs
+
+**Example Usage:**
+```python
+# Geocode flood warning location
+result = geocode_address("Astor, FL")
+# Returns: {"lat": 29.1485, "lng": -81.5043, "formatted_address": "Astor, FL 32102"}
+
+# Find nearest shelters
+shelters = search_nearby_places(
+    location="29.1485,-81.5043",
+    place_type="shelter",
+    radius=10000  # 10km
+)
+
+# Generate map with affected areas
+map_url = generate_map(
+    center_lat=29.1485,
+    center_lng=-81.5043,
+    markers=[
+        {"lat": 29.1485, "lng": -81.5043, "title": "Flood Warning Area", "color": "red"},
+        {"lat": 29.1600, "lng": -81.5200, "title": "Emergency Shelter", "color": "blue"}
+    ],
+    zoom=12
+)
+```
+
+**State Management:**
+- Writes to `state['geocode_result']` - Geocoded location data
+- Writes to `state['directions']` - Route information
+- Writes to `state['nearby_places']` - Emergency resource locations
+- Writes to `state['map_data']` - Generated map URLs
+
+---
+
+### 3. NWS Forecast Agent: `nws_forecast_agent`
+
+**Purpose:** Retrieve real-time weather data from National Weather Service API
+
+**Key Updates:**
+- Uses coordinates from state (provided by location_services_agent)
+- Groups day/night forecast periods into calendar days
+- Presents 7-day forecasts correctly (14 periods = 7 days)
+- No confirmation prompts - executes immediately when coordinates available
+
+**Forecast Presentation:**
+- Combines day and night periods: "Saturday: High 80°F (sunny), Low 54°F (clear)"
+- Instead of: "Saturday: High 80°F" and "Saturday Night: Low 54°F" separately
+
+---
+
+### 4. BigQuery Data Agent: `bigquery_data_agent`
 
 **Purpose:** Query BigQuery datasets for historical weather, demographic, and geographic data
 
@@ -132,25 +235,23 @@ if query requires both + analysis:
 
 **BigQuery Datasets:**
 
-1. **Census Data:**
-   - `bigquery-public-data.census_bureau_acs` - American Community Survey
-   - Demographics: age, income, housing, population density
-   - Census tract level granularity
+1. **Weather & Climate (Primary):**
+   - `bigquery-public-data.noaa_gsod.gsod2025` - Daily weather summaries (temperature, precipitation, wind)
+   - `bigquery-public-data.ghcn_d.ghcnd_stations` - Weather station locations
+   - `bigquery-public-data.ghcn_d.ghcnd_2025` - Current daily climate observations
+   - `bigquery-public-data.ghcn_d.ghcnd_2024` - Historical daily data
+   - `bigquery-public-data.ghcn_m.ghcnm_tavg` - Monthly temperature averages
+   - `bigquery-public-data.ghcn_m.*` - All monthly climate tables
 
-2. **Weather & Climate:**
-   - `bigquery-public-data.noaa_gsod` - Global Surface Summary of Day
-   - `bigquery-public-data.ghcn_d` - Global Historical Climatology Network
-   - Historical temperature, precipitation, extreme events
+2. **Census Data:**
+   - `bigquery-public-data.census_bureau_acs.censustract_2020_5yr` - Demographics
+   - Age, income, housing, population density
+   - Census tract level granularity
 
 3. **Geospatial:**
    - `bigquery-public-data.geo_us_boundaries` - US geographic boundaries
    - Census tracts, counties, states
    - Coordinate-based queries
-
-4. **FEMA & Disaster Data:**
-   - FEMA flood zones
-   - Historical disaster declarations
-   - Damage assessments
 
 **Tools:**
 - `bigquery_toolset` - Full BigQuery query capabilities
@@ -194,7 +295,67 @@ LIMIT 10;
 
 ---
 
-### 3. Forecast Agent: `nws_forecast_agent`
+### 5. Correlation Insights Agent: `correlation_insights_agent`
+
+**Purpose:** Provide two-tier risk analysis - simple common-sense analysis for minor events, data-driven analysis for complex events
+
+**Two-Tier Analysis Approach:**
+
+**TIER 1 - Simple Events (Immediate Common-Sense Analysis):**
+- Rip Current Statements
+- Beach Hazards Statements
+- Minor Coastal Flooding
+- Wind Advisories
+- Small Craft Advisories
+
+**Process:**
+1. Check state for alert details
+2. Provide immediate risk assessment based on alert severity
+3. Identify vulnerable groups (beachgoers, tourists, children)
+4. Recommend standard safety actions
+5. NO BigQuery queries needed
+
+**Example - Rip Current Statement:**
+```
+Risk Assessment:
+- Moderate risk to beachgoers and swimmers
+- Primary vulnerable groups: tourists unfamiliar with conditions, children, inexperienced swimmers
+- Recommended actions: Increase lifeguard presence, post warning signs, public announcements
+- Standard coastal safety protocol applies
+```
+
+**TIER 2 - Complex Events (Data-Driven Analysis):**
+- Hurricane warnings/watches
+- Major flood warnings
+- Extreme heat warnings
+- Tornado warnings affecting large areas
+- Multi-day severe weather events
+
+**Process:**
+1. Check state for alert details and location data
+2. Call bigquery_data_agent to query:
+   - Historical weather events in affected area
+   - Demographic data (elderly population, vulnerable groups)
+   - Census tract information
+   - Past incident patterns
+3. Perform correlation analysis with specific numbers
+4. Present data-driven risk assessment with evacuation priorities
+
+**Example - Hurricane Warning:**
+```
+Risk Assessment (Data-Driven):
+- Based on 15 historical hurricane impacts in South Florida
+- Census data shows 285,000 elderly residents (18% of population)
+- 12 census tracts identified as high-risk (flood history + vulnerable populations)
+- Risk score: 9.2/10 for Census Tract 12086001100
+- Evacuation priority: Immediate for 8,500 residents
+```
+
+---
+
+## Removed Agent: Forecast Agent Details
+
+**Note:** The detailed NWS Forecast Agent section has been consolidated above. Key capabilities remain:
 
 **Purpose:** Retrieve real-time and forecasted weather data from the National Weather Service API
 
@@ -391,9 +552,11 @@ zone_forecast = get_zone_forecast(zone_id="FLZ173", zone_type="forecast")
 
 ---
 
-### 4. Insights Agent: `correlation_insights_agent`
+## Analysis Workflows
 
-**Purpose:** Correlate forecast data with historical/demographic data to generate actionable insights
+**Previous section consolidated into Correlation Insights Agent above.**
+
+### Data Correlation Examples
 
 **Key Capabilities:**
 - Data correlation and analysis
@@ -583,14 +746,14 @@ The system uses `tool_context.state` as a shared data store:
 google-adk>=1.10.0
 google-cloud-bigquery>=3.10.0
 requests>=2.31.0
-pandas>=2.0.0
 python-dotenv>=1.0.0
-geopy>=2.3.0
+google-auth>=2.0.0
 ```
 
 ### External APIs
 1. **NWS API:** https://api.weather.gov (free, no API key required)
-2. **BigQuery Public Datasets:** Multiple datasets (requires GCP project)
+2. **Google Maps API:** Geocoding, Directions, Places, Maps JavaScript API (requires API key)
+3. **BigQuery Public Datasets:** NOAA GSOD, GHCN-D, GHCN-M, Census ACS (requires GCP project)
 
 ---
 
@@ -599,20 +762,19 @@ geopy>=2.3.0
 Required in `.env` file:
 
 ```bash
-# Google Cloud
+# Google Cloud Configuration
 GOOGLE_GENAI_USE_VERTEXAI=TRUE
-GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_PROJECT=graph-rag-app-20250811
 GOOGLE_CLOUD_LOCATION=us-central1
 
-# Model
+# Google Maps API Key
+GOOGLE_MAPS_API_KEY=your-maps-api-key
+
+# Model Configuration
 MODEL=gemini-2.5-flash
 
-# BigQuery
-BIGQUERY_PROJECT=your-project-id
-BIGQUERY_DATASET=weather_insights
-
-# NWS API (no key required, but set user agent)
-NWS_USER_AGENT="(YourApp, contact@email.com)"
+# GCS Bucket for secure data storage
+GREEN_AGENT_BUCKET=green-agent-data
 ```
 
 ---
@@ -621,16 +783,23 @@ NWS_USER_AGENT="(YourApp, contact@email.com)"
 
 ### Local Development
 ```bash
-cd agents/agents_for_impact/Weather\ Insights\ and\ Forecast\ Advisor
+cd weather_insights_and_forecast_advisor
 pip install -r requirements.txt
-adk web  # Start ADK web interface
+adk web  # Start ADK web interface at http://localhost:8000
 ```
 
 ### Cloud Deployment
-- Deploy to Google Cloud Run
-- Enable BigQuery API
-- Configure service account with BigQuery permissions
-- Set up Cloud Logging
+```bash
+# Deploy to Google Cloud Run
+./deploy_to_cloud_run.sh
+
+# Prerequisites:
+# - Enable BigQuery API
+# - Enable Cloud Run API
+# - Enable Maps JavaScript API, Geocoding API, Directions API, Places API
+# - Configure service account with BigQuery permissions
+# - Set GOOGLE_MAPS_API_KEY in environment
+```
 
 ---
 
@@ -766,13 +935,25 @@ TIMELINE:
 
 ---
 
+## Recent Updates
+
+### Version 2.0 (Current)
+- ✅ Added Google Maps API integration (geocoding, directions, places, maps)
+- ✅ Implemented two-tier risk analysis (simple vs complex events)
+- ✅ Integrated NOAA weather datasets (GSOD, GHCN-D, GHCN-M)
+- ✅ Fixed forecast presentation to group day/night periods
+- ✅ Removed repetitive confirmation prompts
+- ✅ Added map generation with Google Maps URLs
+- ✅ Dynamic project ID configuration from environment variables
+
 ## Future Enhancements
 
-1. **Phase 2:** Integration with FEMA disaster response systems
-2. **Phase 3:** Machine learning for predictive risk modeling
-3. **Phase 4:** Real-time sensor data integration (IoT weather stations)
-4. **Phase 5:** Mobile app for field responders
-6. **Phase 6:** Multi-hazard support (wildfires, earthquakes, floods)
+1. **Phase 3:** Integration with FEMA disaster response systems
+2. **Phase 4:** Machine learning for predictive risk modeling
+3. **Phase 5:** Real-time sensor data integration (IoT weather stations)
+4. **Phase 6:** Mobile app for field responders
+5. **Phase 7:** Multi-hazard support (wildfires, earthquakes, floods)
+6. **Phase 8:** Interactive map embedding in chat interface
 
 ---
 
