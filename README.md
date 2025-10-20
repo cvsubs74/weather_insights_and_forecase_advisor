@@ -2,11 +2,20 @@
 
 ## Overview
 
-The Weather Insights and Forecast Advisor is an intelligent multi-agent system designed to provide critical weather-related insights for emergency management, public safety, and disaster preparedness. The system combines real-time weather forecasts with historical demographic and geographic data to enable data-driven decision-making during severe weather events.
+The Weather Insights and Forecast Advisor is a production-ready, full-stack multi-agent system designed to provide critical weather-related insights for emergency management, public safety, and disaster preparedness. Built with Google's Agent Development Kit (ADK), the system features a modern React UI and combines real-time weather forecasts with historical demographic and geographic data to enable data-driven decision-making during severe weather events.
 
 **Primary Theme:** Climate & Public Safety (Agents for Impact '25)
 
 **Core Value Proposition:** Correlate real-time weather forecasts with historical data to identify vulnerable populations and high-risk areas, enabling proactive emergency response and resource allocation.
+
+**Key Features:**
+- 🌐 **Production Deployment:** Live on Firebase Hosting with Cloud Run backend
+- 🎨 **Modern UI:** Interactive React dashboard with real-time weather visualization
+- 🤖 **Multi-Agent System:** Specialized agents for location, forecast, data analysis, and insights
+- 📊 **Historical Data:** Access to NOAA weather datasets via BigQuery
+- 🗺️ **Google Maps Integration:** Geocoding, directions, emergency resources, and interactive maps
+- ⚡ **Real-time Forecasts:** National Weather Service API integration
+- 🎯 **Risk Analysis:** Two-tier analysis for simple and complex weather events
 
 ## 🌐 Live Demo
 
@@ -997,18 +1006,6 @@ make run-all
 - **NOAA GHCN-M:** Global Historical Climatology Network Monthly
 - **NWS API:** Real-time forecasts and alerts
 - **Google Maps:** Geocoding, directions, places
-
-## Recent Updates
-
-### Version 2.0 (Current)
-- ✅ Deployed to production (Cloud Run + Firebase)
-- ✅ Modern React UI with interactive dashboard
-- ✅ Google Maps API integration (geocoding, directions, places, maps)
-- ✅ Two-tier risk analysis (simple vs complex events)
-- ✅ NOAA weather datasets (GSOD, GHCN-D, GHCN-M)
-- ✅ Grouped day/night forecast presentation
-- ✅ Streamlined user experience without repetitive prompts
-- ✅ Dynamic project configuration
 
 ## Future Enhancements
 
