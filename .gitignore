@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend
+weather-insights-ui/node_modules/
+weather-insights-ui/build/
+weather-insights-ui/.cache/
+
+# Firebase
+.firebase/
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+
+# UV lock file
+uv.lock

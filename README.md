@@ -1,4 +1,4 @@
-# Weather Insights and Forecast Advisor - Multi-Agent Architecture
+# Weather Insights and Forecast Advisor
 
 ## Overview
 
@@ -7,6 +7,11 @@ The Weather Insights and Forecast Advisor is an intelligent multi-agent system d
 **Primary Theme:** Climate & Public Safety (Agents for Impact '25)
 
 **Core Value Proposition:** Correlate real-time weather forecasts with historical data to identify vulnerable populations and high-risk areas, enabling proactive emergency response and resource allocation.
+
+## 🌐 Live Demo
+
+- **Frontend:** https://weather-insights-forecaster.web.app
+- **Backend API:** https://weather-insights-agent-79797180773.us-central1.run.app
 
 ---
 
@@ -935,16 +940,75 @@ TIMELINE:
 
 ---
 
+## Deployment
+
+### Backend (Cloud Run)
+```bash
+./deploy_backend.sh
+```
+Deploys the agent backend to Google Cloud Run with:
+- CORS enabled for cross-origin requests
+- Environment variables loaded from `weather_insights_agent/.env`
+- Auto-scaling and serverless architecture
+
+### Frontend (Firebase Hosting)
+```bash
+./deploy_firebase.sh
+```
+Deploys the React UI to Firebase Hosting with:
+- Production-optimized build
+- Automatic SSL certificate
+- Global CDN distribution
+
+### Local Development
+```bash
+# Run backend locally
+make run-agent
+
+# Run frontend locally
+cd weather-insights-ui && npm start
+
+# Run both
+make run-all
+```
+
+## Technology Stack
+
+### Backend
+- **Framework:** Google ADK (Agent Development Kit)
+- **Language:** Python 3.11+
+- **LLM:** Gemini 2.5 Flash (Vertex AI)
+- **APIs:** 
+  - National Weather Service (NWS)
+  - Google Maps API
+  - BigQuery (NOAA datasets)
+- **Deployment:** Google Cloud Run
+
+### Frontend
+- **Framework:** React 19
+- **UI Library:** Tailwind CSS, Heroicons
+- **Maps:** React Leaflet
+- **Charts:** Recharts
+- **Deployment:** Firebase Hosting
+
+### Data Sources
+- **NOAA GSOD:** Global Summary of the Day (historical weather)
+- **NOAA GHCN-D:** Global Historical Climatology Network Daily
+- **NOAA GHCN-M:** Global Historical Climatology Network Monthly
+- **NWS API:** Real-time forecasts and alerts
+- **Google Maps:** Geocoding, directions, places
+
 ## Recent Updates
 
 ### Version 2.0 (Current)
-- ✅ Added Google Maps API integration (geocoding, directions, places, maps)
-- ✅ Implemented two-tier risk analysis (simple vs complex events)
-- ✅ Integrated NOAA weather datasets (GSOD, GHCN-D, GHCN-M)
-- ✅ Fixed forecast presentation to group day/night periods
-- ✅ Removed repetitive confirmation prompts
-- ✅ Added map generation with Google Maps URLs
-- ✅ Dynamic project ID configuration from environment variables
+- ✅ Deployed to production (Cloud Run + Firebase)
+- ✅ Modern React UI with interactive dashboard
+- ✅ Google Maps API integration (geocoding, directions, places, maps)
+- ✅ Two-tier risk analysis (simple vs complex events)
+- ✅ NOAA weather datasets (GSOD, GHCN-D, GHCN-M)
+- ✅ Grouped day/night forecast presentation
+- ✅ Streamlined user experience without repetitive prompts
+- ✅ Dynamic project configuration
 
 ## Future Enhancements
 

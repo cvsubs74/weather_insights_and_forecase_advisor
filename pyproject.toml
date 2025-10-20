@@ -17,5 +17,8 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = []
+packages = ["weather_insights_agent", "weather_insights_agent.weather_tools"]
 py-modules = []
+
+[tool.setuptools.package-data]
+weather_insights_agent = ["**/*.py"]
