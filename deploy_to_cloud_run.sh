@@ -5,7 +5,7 @@
 set -e
 
 # Configuration - modify these variables as needed
-PROJECT_ID=${GOOGLE_CLOUD_PROJECT:-"qwiklabs-gcp-02-c417a7c7752d"}  # Default from environment or replace with your project ID
+PROJECT_ID=${GOOGLE_CLOUD_PROJECT:-"graph-rag-app-20250811"}  # Default from environment or replace with your project ID
 REGION=${GOOGLE_CLOUD_LOCATION:-"us-central1"}  # Default from environment or replace with your preferred region
 SERVICE_NAME="weather-insights-and-forecast-advisor"
 AGENT_PATH=$(dirname "$0")  # Path to the agent directory
@@ -43,7 +43,7 @@ echo "Setting Google Cloud project to $PROJECT_ID..."
 gcloud config set project "$PROJECT_ID"
 
 # Deploy using ADK CLI
-echo "Deploying BigQuery agent to Cloud Run..."
+echo "Deploying Weather Insights agent to Cloud Run..."
 adk deploy cloud_run \
     --project="$PROJECT_ID" \
     --region="$REGION" \

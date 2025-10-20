@@ -1,0 +1,21 @@
+[project]
+name = "weather-insights-agent"
+version = "0.1.0"
+description = "Weather Insights & Forecast Advisor - Multi-agent system for emergency weather intelligence"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "google-adk>=1.10.0",
+    "google-cloud-bigquery",
+    "google-cloud-logging",
+    "python-dotenv",
+    "requests",
+    "uvicorn",
+    "fastapi",
+    "nest-asyncio>=1.6.0",
+    "httpx",
+]
+
+[tool.setuptools]
+packages = []
+py-modules = []
