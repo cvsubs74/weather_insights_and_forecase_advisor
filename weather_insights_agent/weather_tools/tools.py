@@ -208,158 +208,176 @@ def get_census_demographics(
 @track_tool_call("find_nearest_weather_station")
 def find_nearest_weather_station(
     tool_context: ToolContext,
-    city: str,
+    latitude: float,
+    longitude: float,
     state: str
 ) -> Dict[str, Any]:
-    """Find the nearest weather station to a city using BigQuery NOAA GSOD dataset.
+    """Find the top 3 nearest weather stations to coordinates using BigQuery NOAA GSOD dataset.
     
     Args:
-        city (str): City name (e.g., "San Ramon")
-        state (str): State abbreviation (e.g., "CA")
+        latitude (float): Latitude of the location (e.g., 37.7798)
+        longitude (float): Longitude of the location (e.g., -121.9780)
+        state (str): State abbreviation (e.g., "CA") to filter stations
         
     Returns:
-        dict: Nearest weather station ID, name, and distance
+        dict: Top 3 nearest weather stations with IDs, names, and distances
     """
     try:
-        # Query to find stations in the state from GSOD dataset
+        # Query to find top 3 nearest stations using Euclidean distance
         query = f"""
-        SELECT 
+        SELECT
             usaf,
             wban,
             name,
             state,
             lat,
-            lon
-        FROM `bigquery-public-data.noaa_gsod.stations`
-        WHERE state = '{state}'
-        AND lat IS NOT NULL
-        AND lon IS NOT NULL
-        LIMIT 10
+            lon,
+            SQRT(POW((lat - {latitude}), 2) + POW((lon - ({longitude})), 2)) as distance
+        FROM
+            `bigquery-public-data.noaa_gsod.stations`
+        WHERE
+            state = '{state}'
+            AND lat IS NOT NULL
+            AND lon IS NOT NULL
+        ORDER BY
+            distance
+        LIMIT 3
         """
         
-        logger.info(f"Finding nearest weather station for {city}, {state}")
+        logger.info(f"Finding top 3 nearest weather stations for coordinates ({latitude}, {longitude}) in {state}")
         query_job = bq_client.query(query)
         results = query_job.result()
         
         stations = []
         for row in results:
-            # Combine USAF and WBAN to create station ID
-            station_id = f"{row.usaf}{row.wban}"
-            stations.append({
-                "station_id": station_id,
+            # Use USAF as the station identifier (used in stn field for queries)
+            station = {
                 "usaf": row.usaf,
                 "wban": row.wban,
                 "name": row.name,
                 "state": row.state,
                 "latitude": row.lat,
-                "longitude": row.lon
-            })
+                "longitude": row.lon,
+                "distance": row.distance
+            }
+            stations.append(station)
+            logger.info(f"Found station #{len(stations)}: {row.usaf} - {row.name} (distance: {row.distance:.4f})")
         
         if stations:
-            # Use the station with most observations
-            best_station = stations[0]
-            tool_context.state["weather_station"] = best_station
-            
-            logger.info(f"Found weather station: {best_station['station_id']} - {best_station['name']}")
+            tool_context.state["weather_stations"] = stations
             
             return {
                 "status": "success",
-                "station": best_station,
-                "all_stations": stations
+                "stations": stations,
+                "count": len(stations)
             }
-        else:
-            return {
-                "status": "error",
-                "message": f"No weather stations found for {state}"
-            }
-    
-    except Exception as e:
-        logger.error(f"Error finding weather station: {str(e)}")
+        
         return {
             "status": "error",
-            "message": f"Failed to find weather station: {str(e)}"
+            "message": f"No weather stations found for {state}"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error finding weather stations: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to find weather stations: {str(e)}"
         }
 
 
 @track_tool_call("query_historical_weather")
 def query_historical_weather(
     tool_context: ToolContext,
-    station_id: str,
+    usaf_ids: list,
     start_date: str,
     end_date: str
 ) -> Dict[str, Any]:
-    """Query historical weather data from BigQuery public datasets.
+    """Query historical weather data from BigQuery public datasets with fallback to multiple stations.
     
     Args:
-        station_id (str): Weather station ID (e.g., "USW00012839" for Miami) - use find_nearest_weather_station first if unknown
+        usaf_ids (list): List of USAF station IDs to try (e.g., ["724927", "724930"])
         start_date (str): Start date in YYYY-MM-DD format
         end_date (str): End date in YYYY-MM-DD format
         
     Returns:
-        dict: Historical weather observations
+        dict: Historical weather observations from the first station with data
     """
-    try:
-        # Extract year from start_date for table suffix
-        # The previous fix to use the wildcard table is retained here
-        start_year = start_date.split('-')[0]
-        end_year = end_date.split('-')[0]
-        table_suffix = "*" # Use wildcard to cover multiple years
-        
-        # Build query with corrected column name (mxspd -> mxpsd)
-        query = f"""
-        SELECT 
-            CAST(year AS STRING) || '-' || LPAD(CAST(mo AS STRING), 2, '0') || '-' || LPAD(CAST(da AS STRING), 2, '0') as date,
-            temp,
-            max,
-            min,
-            prcp,
-            sndp,
-            wdsp,
-            mxpsd  -- FIX: Changed 'mxspd' to 'mxpsd'
-        FROM `bigquery-public-data.noaa_gsod.gsod{table_suffix}`
-        WHERE stn = '{station_id}'
-            AND CAST(year AS STRING) || '-' || LPAD(CAST(mo AS STRING), 2, '0') || '-' || LPAD(CAST(da AS STRING), 2, '0') 
-                BETWEEN '{start_date}' AND '{end_date}'
-        ORDER BY year DESC, mo DESC, da DESC
-        LIMIT 100
-        """
-        
-        query_job = bq_client.query(query)
-        results = query_job.result()
-        
-        records = []
-        for row in results:
-            records.append({
-                "date": str(row.date),
-                "temperature": row.temp,
-                "max_temp": row.max,
-                "min_temp": row.min,
-                "precipitation": row.prcp,
-                "snow_depth": row.sndp,
-                "wind_speed": row.wdsp,
-                "max_wind_speed": row.mxpsd # FIX: Changed dictionary key access to 'mxpsd'
-            })
-        
-        tool_context.state["historical_weather"] = {
-            "station_id": station_id,
-            "records": records,
-            "count": len(records)
-        }
-        
-        logger.info(f"Retrieved {len(records)} historical weather records")
-        
-        return {
-            "status": "success",
-            "records": records,
-            "count": len(records)
-        }
+    # Extract year from start_date for table suffix
+    start_year = start_date.split('-')[0]
+    end_year = end_date.split('-')[0]
+    table_suffix = "*"  # Use wildcard to cover multiple years
     
-    except Exception as e:
-        logger.error(f"Error querying historical weather: {str(e)}")
-        return {
-            "status": "error",
-            "message": f"Failed to query historical data: {str(e)}"
-        }
+    # Try each station in order until we get data
+    for idx, usaf_id in enumerate(usaf_ids):
+        try:
+            logger.info(f"Attempting to query station #{idx+1}: {usaf_id}")
+            
+            # Build query using USAF as stn field
+            query = f"""
+            SELECT 
+                CAST(year AS STRING) || '-' || LPAD(CAST(mo AS STRING), 2, '0') || '-' || LPAD(CAST(da AS STRING), 2, '0') as date,
+                temp,
+                max,
+                min,
+                prcp,
+                sndp,
+                wdsp,
+                mxpsd
+            FROM `bigquery-public-data.noaa_gsod.gsod{table_suffix}`
+            WHERE stn = '{usaf_id}'
+                AND CAST(year AS STRING) || '-' || LPAD(CAST(mo AS STRING), 2, '0') || '-' || LPAD(CAST(da AS STRING), 2, '0') 
+                    BETWEEN '{start_date}' AND '{end_date}'
+            ORDER BY year DESC, mo DESC, da DESC
+            LIMIT 100
+            """
+            
+            query_job = bq_client.query(query)
+            results = query_job.result()
+            
+            records = []
+            for row in results:
+                records.append({
+                    "date": str(row.date),
+                    "temperature": row.temp,
+                    "max_temp": row.max,
+                    "min_temp": row.min,
+                    "precipitation": row.prcp,
+                    "snow_depth": row.sndp,
+                    "wind_speed": row.wdsp,
+                    "max_wind_speed": row.mxpsd
+                })
+            
+            if records:
+                tool_context.state["historical_weather"] = {
+                    "usaf_id": usaf_id,
+                    "records": records,
+                    "count": len(records)
+                }
+                
+                logger.info(f"Successfully retrieved {len(records)} records from station {usaf_id}")
+                
+                return {
+                    "status": "success",
+                    "usaf_id": usaf_id,
+                    "records": records,
+                    "count": len(records),
+                    "station_tried": idx + 1,
+                    "total_stations": len(usaf_ids)
+                }
+            else:
+                logger.warning(f"No data found for station {usaf_id}, trying next station...")
+                
+        except Exception as e:
+            logger.error(f"Error querying station {usaf_id}: {str(e)}, trying next station...")
+            continue
+    
+    # If we get here, none of the stations had data
+    logger.error(f"No data found for any of the {len(usaf_ids)} stations")
+    return {
+        "status": "error",
+        "message": f"Failed to retrieve data from any of the {len(usaf_ids)} nearest weather stations",
+        "stations_tried": usaf_ids
+    }
 
 
 @track_tool_call("get_weather_statistics")

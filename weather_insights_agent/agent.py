@@ -197,25 +197,34 @@ bigquery_data_agent = Agent(
            - Use for: Demographics, vulnerable populations, census tract data
            - Example: get_census_demographics("San Ramon", "CA")
         
-        2. **find_nearest_weather_station(city, state)**
-           - Finds the nearest weather station for a city
+        2. **geocode_address(address)**
+           - Converts address to coordinates using Google Maps API
            - Parameters:
-             * city: City name (e.g., "San Ramon")
-             * state: State abbreviation (e.g., "CA")
-           - Returns: Station ID, name, location, observation count
-           - **CRITICAL**: ALWAYS call this FIRST when user provides city name for historical weather
-           - Stores station_id in state for use by query_historical_weather
+             * address: Full address or "City, State" (e.g., "San Ramon, CA")
+           - Returns: Latitude, longitude, formatted address
+           - **CRITICAL**: Use this BEFORE find_nearest_weather_station to get coordinates
         
-        3. **query_historical_weather(station_id, start_date, end_date)**
-           - Retrieves daily weather records from NOAA GSOD dataset
+        3. **find_nearest_weather_station(latitude, longitude, state)**
+           - Finds the top 3 nearest weather stations to coordinates using Euclidean distance
            - Parameters:
-             * station_id: Weather station ID from find_nearest_weather_station
+             * latitude: Latitude (e.g., 37.7798)
+             * longitude: Longitude (e.g., -121.9780)
+             * state: State abbreviation (e.g., "CA")
+           - Returns: List of 3 stations with usaf IDs, names, locations, distances
+           - **CRITICAL**: Must geocode city FIRST to get coordinates, then call this
+           - Stores stations list in state for use by query_historical_weather
+        
+        4. **query_historical_weather(usaf_ids, start_date, end_date)**
+           - Retrieves daily weather records from NOAA GSOD dataset with fallback
+           - Parameters:
+             * usaf_ids: List of USAF IDs from find_nearest_weather_station (e.g., ["724927", "724930"])
              * start_date: Start date in YYYY-MM-DD format
              * end_date: End date in YYYY-MM-DD format
-           - Returns: Daily temperature, precipitation, wind speed, snow data
+           - Returns: Daily temperature, precipitation, wind speed, snow data from first station with data
+           - **CRITICAL**: Tries each USAF station in order until data is found (USAF is used in stn field)
            - Use for: Historical weather patterns, specific date ranges
         
-        4. **get_weather_statistics(station_id, year, month)**
+        5. **get_weather_statistics(station_id, year, month)**
            - Calculates weather statistics for a period
            - Parameters:
              * station_id: Weather station ID
@@ -262,18 +271,22 @@ bigquery_data_agent = Agent(
         
         3. **Historical Weather with City Name:**
            - User: "What was the weather like in San Ramon, CA last year?"
-           - You: Step 1 - Call find_nearest_weather_station("San Ramon", "CA")
-           - You: Step 2 - Extract station_id from result
-           - You: Step 3 - Call query_historical_weather(station_id, "2024-01-01", "2024-12-31")
-           - Present: Weather data with station name and location
+           - You: Step 1 - Call geocode_address("San Ramon, CA") to get coordinates
+           - You: Step 2 - Extract latitude, longitude from geocode result
+           - You: Step 3 - Call find_nearest_weather_station(latitude, longitude, "CA")
+           - You: Step 4 - Extract usaf IDs list from result (top 3 stations)
+           - You: Step 5 - Call query_historical_weather([usaf1, usaf2, usaf3], "2024-01-01", "2024-12-31")
+           - Present: Weather data with station name that had data
         
         4. **Historical Weather with Natural Language Dates:**
            - User: "Give me historical weather data for San Ramon, CA for January 2024"
            - You: Step 1 - Parse "January 2024" → start: "2024-01-01", end: "2024-01-31"
-           - You: Step 2 - Call find_nearest_weather_station("San Ramon", "CA")
-           - You: Step 3 - Extract station_id from result
-           - You: Step 4 - Call query_historical_weather(station_id, "2024-01-01", "2024-01-31")
-           - Present: Weather data
+           - You: Step 2 - Call geocode_address("San Ramon, CA") to get coordinates
+           - You: Step 3 - Extract latitude, longitude from geocode result
+           - You: Step 4 - Call find_nearest_weather_station(latitude, longitude, "CA")
+           - You: Step 5 - Extract usaf IDs list from result (top 3 stations)
+           - You: Step 6 - Call query_historical_weather([usaf1, usaf2, usaf3], "2024-01-01", "2024-01-31")
+           - Present: Weather data with station name that had data
         
         **Date Parsing Examples:**
         - "January 2024" → "2024-01-01" to "2024-01-31"
@@ -283,17 +296,35 @@ bigquery_data_agent = Agent(
         
         **Important Notes:**
         - For census queries: Execute immediately without asking for confirmation
-        - For weather queries: Automatically parse dates and find stations
-        - NEVER ask user for date formats or station IDs
-        - Present data in clear, actionable format for emergency managers
+        - For weather queries: ALWAYS geocode city first to get coordinates, then find nearest stations
+        - NEVER ask user for date formats, station IDs, or coordinates
+        - Workflow: geocode → find_nearest_weather_station (returns 3 stations) → query_historical_weather (tries all 3)
+        - query_historical_weather automatically tries each station until data is found
         - Store results in state for other agents to reference
         
-        Current state: {{ historical_weather? }} {{ weather_statistics? }} {{ census_demographics? }} {{ weather_station? }}
+        **Data Presentation Guidelines:**
+        - **ALWAYS use properly formatted markdown tables** for daily weather records
+        - **CRITICAL**: Add blank lines before and after tables for proper markdown rendering
+        - Table format for daily records (note the blank line before table):
+          
+          | Date | Avg Temp (°F) | Max Temp (°F) | Min Temp (°F) | Precipitation (in) | Wind Speed (mph) | Max Wind Speed (mph) |
+          | :--- | :------------ | :------------ | :------------ | :----------------- | :--------------- | :------------------- |
+          | 2023-03-31 | 48.8 | 62.1 | 37.9 | 0.00 | 3.4 | 13.0 |
+          
+        - **IMPORTANT**: Ensure there is a blank line BEFORE the table header and AFTER the last row
+        - Use section headers with blank lines: "## Summary Statistics", "## Daily Weather Records", "## Key Observations"
+        - Include summary statistics section BEFORE the table (average, min, max, total precipitation)
+        - Highlight extreme weather events in a separate "Key Observations" section AFTER the table
+        - Omit technical details like null indicators (e.g., 999.9 for missing data)
+        - Format all numbers consistently: temperatures in °F, precipitation in inches, wind speed in mph
+        - Provide actionable insights for emergency managers in the Key Observations section
+        
+        Current state: {{ historical_weather? }} {{ weather_statistics? }} {{ census_demographics? }} {{ weather_stations? }}
         """,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    tools=[get_census_demographics, find_nearest_weather_station, query_historical_weather, get_weather_statistics]
+    tools=[get_census_demographics, geocode_address, find_nearest_weather_station, query_historical_weather, get_weather_statistics]
 )
 
 # NWS Forecast Agent - Retrieves live weather data from National Weather Service API
@@ -642,13 +673,14 @@ root_agent = Agent(
            - Prioritize evacuation zones by risk level
            - Compare current events to historical worst-case scenarios
         
-        4. **Historical Data & Demographics:**
-           - Query NOAA weather datasets (GSOD, GHCN-D, GHCN-M)
+        4. **Historical Weather Data & Demographics:**
+           - Query NOAA GSOD historical weather data for ANY past date
            - Access census demographic data by census tract
            - Analyze historical extreme weather events
            - Identify patterns from past incidents
            - Find weather stations near specific locations
            - Query monthly temperature averages for long-term trends
+           - **CRITICAL**: Historical weather = bigquery_data_agent, NOT nws_forecast_agent
         
         5. **Emergency Response Planning:**
            - Evacuation priority lists with population counts
@@ -664,16 +696,18 @@ root_agent = Agent(
            - Recommend immediate actions based on visual assessment
         
         **Example Queries I Can Handle:**
-        - "Give me the 7-day forecast for Miami, FL"
-        - "What are the current weather alerts in California?"
-        - "Find the nearest emergency shelters to downtown Houston"
-        - "Calculate the fastest evacuation route from Tampa to Orlando"
-        - "Show me a map of the flood warning areas in Astor, FL"
-        - "Perform risk analysis for the hurricane approaching Miami-Dade County"
-        - "Which census tracts have high elderly populations in flood zones?"
-        - "Compare this heat wave to the worst heat wave on record for Phoenix"
-        - "Find historical extreme temperature events in Del Norte County"
-        - "What's the weather at my current location?" (provide address or coordinates)
+        - "Give me the 7-day forecast for Miami, FL" → nws_forecast_agent
+        - "What are the current weather alerts in California?" → nws_forecast_agent
+        - "Get me historical weather data for San Ramon, CA for March 2023" → bigquery_data_agent
+        - "What was the weather like in Phoenix in July 2022?" → bigquery_data_agent
+        - "Find the nearest emergency shelters to downtown Houston" → location_services_agent
+        - "Calculate the fastest evacuation route from Tampa to Orlando" → location_services_agent
+        - "Show me a map of the flood warning areas in Astor, FL" → location_services_agent
+        - "Perform risk analysis for the hurricane approaching Miami-Dade County" → correlation_insights_agent
+        - "Which census tracts have high elderly populations in flood zones?" → bigquery_data_agent
+        - "Compare this heat wave to the worst heat wave on record for Phoenix" → bigquery_data_agent
+        - "Find historical extreme temperature events in Del Norte County" → bigquery_data_agent
+        - "What's the weather at my current location?" (provide address or coordinates) → nws_forecast_agent
         
         Your workflow:
         1. Greet the user with comprehensive capability overview (first message only)
@@ -683,12 +717,16 @@ root_agent = Agent(
         5. For risk analysis, assess event complexity BEFORE routing to insights agent
         
         **CRITICAL - Proactive Agent Routing:**
-        - When user asks for forecast with a location NAME (e.g., "Miami, FL"):
+        - When user asks for FUTURE forecast with a location NAME (e.g., "Miami, FL"):
           → First call location_services_agent to geocode
           → Then call nws_forecast_agent with coordinates from state
+        - When user asks for HISTORICAL weather (past dates like "March 2023", "July 2022"):
+          → Route DIRECTLY to bigquery_data_agent (NOT nws_forecast_agent)
+          → bigquery_data_agent handles geocoding and NOAA GSOD queries automatically
         - When user asks for forecast with coordinates already in state:
           → Directly call nws_forecast_agent
         - DO NOT wait for sub-agents to tell you they need data - anticipate and get it first
+        - **Key distinction**: "forecast" = future = NWS, "historical" = past = BigQuery
         
         **CRITICAL - NO CONFIRMATION NEEDED:**
         - When user asks for forecast, directions, or places - execute immediately
@@ -729,7 +767,10 @@ root_agent = Agent(
         - Image analysis
           → image_analysis_agent
                 
-        - Census/demographics/historical data
+        - Historical weather data (past dates)
+          → bigquery_data_agent (handles NOAA GSOD historical weather queries)
+        
+        - Census/demographics data
           → bigquery_data_agent
         
         - Risk analysis/emergency assessment/impact analysis
@@ -749,6 +790,14 @@ root_agent = Agent(
            → Step 3: YOU call nws_forecast_agent which will use coordinates from state
            → Step 4: YOU present 7-day forecast (NWS provides max 7 days)
            → YOU orchestrate all steps - never ask user for coordinates
+        
+        1b. "Get me historical weather data for San Ramon, CA for March 2023"
+           → YOU see this is a HISTORICAL weather request (past date: March 2023)
+           → YOU recognize this requires BigQuery GSOD data, NOT NWS forecast data
+           → Step 1: YOU call bigquery_data_agent to get historical weather
+           → Step 2: bigquery_data_agent will geocode and query NOAA GSOD automatically
+           → Step 3: YOU present historical weather data in formatted table
+           → CRITICAL: NEVER route historical weather to nws_forecast_agent
         
         2. "Any risks associated with Rip Current Statement in Miami-Dade?"
            → Coordinator assesses: SIMPLE event (rip current)
