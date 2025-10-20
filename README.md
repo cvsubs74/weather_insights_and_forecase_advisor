@@ -11,7 +11,7 @@ The Weather Insights and Forecast Advisor is an intelligent multi-agent system d
 ## 🌐 Live Demo
 
 - **Frontend:** https://weather-insights-forecaster.web.app
-- **Backend API:** https://weather-insights-agent-79797180773.us-central1.run.app
+- **ADK Agent:** https://weather-insights-agent-79797180773.us-central1.run.app
 
 ---
 
