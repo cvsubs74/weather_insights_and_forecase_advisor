@@ -1007,15 +1007,6 @@ make run-all
 - **NWS API:** Real-time forecasts and alerts
 - **Google Maps:** Geocoding, directions, places
 
-## Future Enhancements
-
-1. **Phase 3:** Integration with FEMA disaster response systems
-2. **Phase 4:** Machine learning for predictive risk modeling
-3. **Phase 5:** Real-time sensor data integration (IoT weather stations)
-4. **Phase 6:** Mobile app for field responders
-5. **Phase 7:** Multi-hazard support (wildfires, earthquakes, floods)
-6. **Phase 8:** Interactive map embedding in chat interface
-
 ---
 
 **Built for Agents for Impact '25 - Climate & Public Safety Track**
