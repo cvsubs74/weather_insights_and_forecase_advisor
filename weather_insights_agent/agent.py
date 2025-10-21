@@ -1,11 +1,12 @@
 import os
 import logging
-from functools import wraps
 
 from dotenv import load_dotenv
 from google.adk import Agent
 from google.genai import types
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmResponse, LlmRequest
 
 from .weather_tools.tools import (
     query_historical_weather,
@@ -35,27 +36,23 @@ logger = logging.getLogger(__name__)
 # Get Google Maps API Key
 google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
 
-# Agent transfer tracking decorator
-def track_agent_call(agent_name):
-    """Decorator to track agent transfers and execution"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            logger.info(f"{'='*80}")
-            logger.info(f"🔄 AGENT TRANSFER: Calling {agent_name}")
-            logger.info(f"   Args: {args}")
-            logger.info(f"   Kwargs: {kwargs}")
-            logger.info(f"{'='*80}")
-            
-            result = func(*args, **kwargs)
-            
-            logger.info(f"{'='*80}")
-            logger.info(f"✅ AGENT COMPLETE: {agent_name} finished execution")
-            logger.info(f"{'='*80}")
-            
-            return result
-        return wrapper
-    return decorator
+# Callback functions to log agent activity
+def log_agent_entry(callback_context: CallbackContext, llm_request: LlmRequest):
+    """Log when an agent is invoked"""
+    logger.info("="*80)
+    logger.info(f"🔄 AGENT TRANSFER: {callback_context.agent_name}")
+    logger.info("="*80)
+
+def log_agent_exit(callback_context: CallbackContext, llm_response: LlmResponse):
+    """Log when an agent completes execution"""
+    logger.info("="*80)
+    logger.info(f"✅ AGENT COMPLETE: {callback_context.agent_name}")
+    # Log function calls if any
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if part.function_call:
+                logger.info(f"   Function Call: {part.function_call.name}")
+    logger.info("="*80)
 
 # Location Services Agent - Geocoding, directions, and emergency resource location via Google Maps API
 location_services_agent = Agent(
@@ -203,7 +200,9 @@ location_services_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    tools=[geocode_address, get_directions, search_nearby_places, generate_map]
+    tools=[geocode_address, get_directions, search_nearby_places, generate_map],
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit
 )
 
 # BigQuery Data Agent - Queries historical weather, demographic, and geographic data
@@ -211,6 +210,8 @@ bigquery_data_agent = Agent(
     name="bigquery_data_agent",
     model=os.getenv("MODEL"),
     description="Queries BigQuery public datasets for census demographics (population, age, income, housing, race/ethnicity by census tract), historical weather events, flood zones, and geospatial data. Use this agent for ANY census, demographic, or census tract queries.",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
     instruction=f"""
         You are a historical data specialist for the Weather Insights and Forecast Advisor system.
         You help emergency managers access historical weather patterns, census demographics, and geospatial data.
@@ -478,7 +479,9 @@ nws_forecast_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.2,
     ),
-    tools=[get_nws_forecast, get_hourly_forecast, get_nws_alerts, get_current_conditions, get_hurricane_track]
+    tools=[get_nws_forecast, get_hourly_forecast, get_nws_alerts, get_current_conditions, get_hurricane_track],
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit
 )
 
 # Image Analysis Agent - Analyzes weather event images using vision capabilities
@@ -486,6 +489,8 @@ image_analysis_agent = Agent(
     name="image_analysis_agent",
     model=os.getenv("MODEL"),
     description="Analyzes uploaded images of weather events, damage assessments, and environmental conditions to provide emergency response recommendations.",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
     instruction="""
         You are a Weather Event Image Analysis specialist for the Weather Insights and Forecast Advisor system.
         You analyze images of weather events, storm damage, flooding, and environmental conditions to help emergency managers make informed decisions.
@@ -555,6 +560,8 @@ correlation_insights_agent = Agent(
     name="correlation_insights_agent",
     model=os.getenv("MODEL"),
     description="Correlates weather forecast data with historical events and demographic data to generate actionable emergency response insights.",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
     instruction="""
         You are a data correlation and insights specialist for the Weather Insights and Forecast Advisor system.
         You combine weather forecasts with historical data and demographics to provide actionable emergency response recommendations.
@@ -673,6 +680,8 @@ root_agent = Agent(
     name="weather_advisor_coordinator",
     model=os.getenv("MODEL"),
     description="Weather Insights and Forecast Advisor that helps emergency managers make data-driven decisions during severe weather events.",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
     instruction="""
         You are the Weather Insights and Forecast Advisor Coordinator - an intelligent assistant for emergency managers
         and public safety officials during severe weather events.
