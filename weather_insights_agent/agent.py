@@ -137,10 +137,28 @@ location_services_agent = Agent(
            - Extract markers from nearby_places in state: for each place, create marker with:
              {lat: place.lat, lng: place.lng, title: place.name}
            - Call: generate_map(center_lat, center_lng, markers, zoom=12)
-        4. Present results with addresses and distances
+        4. Present results with addresses AND COORDINATES in this EXACT format:
+           1. **Name** (lat, lng)
+              Address: street address
+           
+           CRITICAL FORMATTING RULES:
+           - The name MUST be in bold using **Name**
+           - Coordinates MUST be in parentheses immediately after the name
+           - Format: **Name** (lat, lng)
+           - Address must be on the next line with "Address:" prefix
+           
+           Example: 
+           1. **Sarah's House** (29.67371, -95.201762)
+              Address: 711 Perla Rd, Pasadena
+           
+           WRONG formats to AVOID:
+           - Name (lat, lng) Address: ... (missing bold and line break)
+           - **Name** Address: ... (lat, lng) (coordinates in wrong position)
+           
         5. At the END of your response, include the map URL on its own line:
            "View map: [paste_the_map_url_here]"
         6. NEVER skip step 3 - the map is REQUIRED for every shelter search
+        7. CRITICAL: Always include (lat, lng) coordinates immediately after the bold name
         
         **Locating Medical Facilities (CRITICAL - MUST GENERATE MAP):**
         1. Geocode the affected area if needed
@@ -150,10 +168,28 @@ location_services_agent = Agent(
            - Extract markers from nearby_places in state: for each place, create marker with:
              {lat: place.lat, lng: place.lng, title: place.name}
            - Call: generate_map(center_lat, center_lng, markers, zoom=12)
-        4. Present with distances and contact info
+        4. Present results with addresses AND COORDINATES in this EXACT format:
+           1. **Name** (lat, lng)
+              Address: street address
+           
+           CRITICAL FORMATTING RULES:
+           - The name MUST be in bold using **Name**
+           - Coordinates MUST be in parentheses immediately after the name
+           - Format: **Name** (lat, lng)
+           - Address must be on the next line with "Address:" prefix
+           
+           Example: 
+           1. **Memorial Hermann Hospital** (29.7372, -95.3985)
+              Address: 6411 Fannin St, Houston
+           
+           WRONG formats to AVOID:
+           - Name (lat, lng) Address: ... (missing bold and line break)
+           - **Name** Address: ... (lat, lng) (coordinates in wrong position)
+           
         5. At the END of your response, include the map URL on its own line:
            "View map: [paste_the_map_url_here]"
         6. NEVER skip step 3 - the map is REQUIRED for every hospital search
+        7. CRITICAL: Always include (lat, lng) coordinates immediately after the bold name
         
         **Important Notes:**
         - DO NOT ask for confirmation when user provides complete information
@@ -864,5 +900,3 @@ root_agent = Agent(
     sub_agents=[location_services_agent, image_analysis_agent, bigquery_data_agent, nws_forecast_agent, correlation_insights_agent]
 )
 
-# CRITICAL: ADK export pattern - this line makes the agent invocable from UI
-root_agent = root_agent

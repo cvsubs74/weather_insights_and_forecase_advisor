@@ -1027,34 +1027,57 @@ def generate_map(
         title (str): Title for the map
         
     Returns:
-        dict: Google Maps URL and marker information
+        dict: Google Maps URL and marker information with structured marker data
     """
     try:
         # Build Google Maps URL with markers
-        # Format: https://www.google.com/maps/dir/?api=1&destination=lat,lng&waypoints=lat1,lng1|lat2,lng2
+        # For multiple markers, use the directions API format with waypoints
         
         if markers and len(markers) > 0:
+            # Build a URL that shows all markers
+            # Format: https://www.google.com/maps/dir/?api=1&destination=lat,lng&waypoints=lat1,lng1|lat2,lng2
+            
             # Use first marker as destination
             first_marker = markers[0]
             dest_lat = first_marker.get('lat', center_lat)
             dest_lng = first_marker.get('lng', center_lng)
             
-            # Build markers list - create a search URL that will show shelters/hospitals
-            # Format: https://www.google.com/maps/search/shelters/@lat,lng,zoom
-            map_url = f"https://www.google.com/maps/search/shelters/@{center_lat},{center_lng},{zoom}z"
+            # Build waypoints from remaining markers (up to 9 waypoints max for Google Maps)
+            waypoints = []
+            for marker in markers[1:9]:  # Limit to 8 additional waypoints
+                lat = marker.get('lat')
+                lng = marker.get('lng')
+                if lat and lng:
+                    waypoints.append(f"{lat},{lng}")
+            
+            # Construct the URL
+            map_url = f"https://www.google.com/maps/dir/?api=1&destination={dest_lat},{dest_lng}"
+            if waypoints:
+                map_url += f"&waypoints={('|').join(waypoints)}"
+            map_url += "&travelmode=driving"
         else:
-            # No markers, just center location (map mode, not satellite)
-            map_url = f"https://www.google.com/maps/search/?api=1&query={center_lat},{center_lng}&zoom={zoom}&map_action=map"
+            # No markers, just center location
+            map_url = f"https://www.google.com/maps/search/?api=1&query={center_lat},{center_lng}&zoom={zoom}"
         
-        # Store map data in state
+        # Store map data in state with structured markers for frontend
+        structured_markers = []
+        if markers:
+            for marker in markers:
+                structured_markers.append({
+                    "lat": marker.get('lat'),
+                    "lng": marker.get('lng'),
+                    "title": marker.get('title', 'Location'),
+                    "address": marker.get('address', '')
+                })
+        
         tool_context.state["map_data"] = {
             "center": {"lat": center_lat, "lng": center_lng},
             "zoom": zoom,
-            "markers": markers or [],
+            "markers": structured_markers,
             "map_url": map_url
         }
         
-        # Build marker summary
+        # Build marker summary for agent response
         marker_summary = []
         if markers:
             for i, marker in enumerate(markers, 1):
@@ -1065,14 +1088,16 @@ def generate_map(
         
         logger.info(f"Generated map URL centered at ({center_lat}, {center_lng}) with {len(markers or [])} markers")
         
+        # Return structured data that frontend can parse
         return {
             "status": "success",
             "message": f"Generated map with {len(markers or [])} marker(s)",
             "map_url": map_url,
             "center": {"lat": center_lat, "lng": center_lng},
             "zoom": zoom,
-            "markers": marker_summary,
-            "instruction": "Open the map_url in a browser to view the interactive map with all markers"
+            "markers": structured_markers,  # Return structured markers for frontend
+            "marker_summary": marker_summary,
+            "instruction": "View map: " + map_url
         }
     
     except Exception as e:

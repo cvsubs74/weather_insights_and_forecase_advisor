@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import AlertCard from '../components/AlertCard';
-import MapEmbed from '../components/MapEmbed';
+import LocationMap from '../components/LocationMap';
 import api from '../services/api';
 import { 
   MagnifyingGlassIcon, 
@@ -16,15 +16,51 @@ import {
 
 const Dashboard = () => {
   const [alerts, setAlerts] = useState([]);
-  const [agentResponse, setAgentResponse] = useState('');
+  const [agentResponse, setAgentResponse] = useState(() => {
+    return localStorage.getItem('dashboardResponse') || '';
+  });
   const [loading, setLoading] = useState(false);
-  const [location, setLocation] = useState('all US states');
-  const [selectedFilter, setSelectedFilter] = useState('national');
+  const [location, setLocation] = useState(() => {
+    return localStorage.getItem('dashboardLocation') || 'all US states';
+  });
+  const [selectedFilter, setSelectedFilter] = useState(() => {
+    return localStorage.getItem('dashboardFilter') || 'national';
+  });
+  const [alertMarkers, setAlertMarkers] = useState(() => {
+    const saved = localStorage.getItem('dashboardMarkers');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [mapCenter, setMapCenter] = useState(() => {
+    const saved = localStorage.getItem('dashboardMapCenter');
+    return saved ? JSON.parse(saved) : [39.8283, -98.5795];
+  });
+
+  // Save to localStorage whenever state changes
+  useEffect(() => {
+    if (agentResponse) localStorage.setItem('dashboardResponse', agentResponse);
+  }, [agentResponse]);
 
   useEffect(() => {
-    // Load national alerts by default
-    setLocation('all US states');
-    loadAlerts();
+    if (location) localStorage.setItem('dashboardLocation', location);
+  }, [location]);
+
+  useEffect(() => {
+    localStorage.setItem('dashboardFilter', selectedFilter);
+  }, [selectedFilter]);
+
+  useEffect(() => {
+    if (alertMarkers.length > 0) localStorage.setItem('dashboardMarkers', JSON.stringify(alertMarkers));
+  }, [alertMarkers]);
+
+  useEffect(() => {
+    if (mapCenter) localStorage.setItem('dashboardMapCenter', JSON.stringify(mapCenter));
+  }, [mapCenter]);
+
+  useEffect(() => {
+    // Only load alerts if there's no saved response
+    if (!agentResponse) {
+      loadAlerts();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -36,12 +72,103 @@ const Dashboard = () => {
       const response = await api.getAlerts(location);
       if (response && response.content) {
         setAgentResponse(response.content);
+        parseAlertLocations(response.content, location);
       }
     } catch (error) {
       console.error('Failed to load alerts:', error);
       setAgentResponse('Failed to load alerts. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const parseAlertLocations = (content, currentLocation) => {
+    const markers = [];
+    
+    // Regional centers for broad queries
+    const regionalCenters = {
+      'all US states': [39.8283, -98.5795],
+      'western US states': [40.0, -115.0],
+      'midwest US states': [41.5, -93.5],
+      'southern US states': [32.0, -90.0],
+      'northeast US states': [42.5, -73.5]
+    };
+    
+    // Location database for US states and major cities
+    const locationMap = {
+      // California
+      'San Francisco': [37.7749, -122.4194],
+      'Los Angeles': [34.0522, -118.2437],
+      'San Diego': [32.7157, -117.1611],
+      'Sacramento': [38.5816, -121.4944],
+      'Eureka': [40.8021, -124.1637],
+      'Monterey': [36.6002, -121.8947],
+      'Santa Barbara': [34.4208, -119.6982],
+      'San Luis Obispo': [35.2828, -120.6596],
+      'Mendocino': [39.3077, -123.7994],
+      'Del Norte': [41.7443, -124.1337],
+      'Humboldt': [40.7450, -123.8695],
+      'California': [36.7783, -119.4179],
+      // Texas
+      'Houston': [29.7604, -95.3698],
+      'Dallas': [32.7767, -96.7970],
+      'Austin': [30.2672, -97.7431],
+      'San Antonio': [29.4241, -98.4936],
+      'Texas': [31.9686, -99.9018],
+      // Florida
+      'Miami': [25.7617, -80.1918],
+      'Tampa': [27.9506, -82.4572],
+      'Orlando': [28.5383, -81.3792],
+      'Jacksonville': [30.3322, -81.6557],
+      'Florida': [27.6648, -81.5158],
+      // New York
+      'New York': [40.7128, -74.0060],
+      'Buffalo': [42.8864, -78.8784],
+      'Albany': [42.6526, -73.7562],
+      // Other major cities
+      'Chicago': [41.8781, -87.6298],
+      'Seattle': [47.6062, -122.3321],
+      'Denver': [39.7392, -104.9903],
+      'Phoenix': [33.4484, -112.0740],
+      'Atlanta': [33.7490, -84.3880],
+      'Boston': [42.3601, -71.0589],
+      'Washington': [38.9072, -77.0369],
+      'Portland': [45.5152, -122.6784],
+      'Las Vegas': [36.1699, -115.1398],
+      'New Orleans': [29.9511, -90.0715]
+    };
+    
+    // Search for location names in the response
+    Object.entries(locationMap).forEach(([name, coords]) => {
+      if (content.toLowerCase().includes(name.toLowerCase())) {
+        markers.push({
+          lat: coords[0],
+          lng: coords[1],
+          title: name,
+          address: 'Alert Zone'
+        });
+      }
+    });
+    
+    // Remove duplicates
+    const uniqueMarkers = markers.filter((marker, index, self) =>
+      index === self.findIndex((m) => m.lat === marker.lat && m.lng === marker.lng)
+    );
+    
+    setAlertMarkers(uniqueMarkers);
+    
+    // Set map center based on markers or regional center
+    if (uniqueMarkers.length > 0) {
+      // Calculate center from markers
+      const avgLat = uniqueMarkers.reduce((sum, m) => sum + m.lat, 0) / uniqueMarkers.length;
+      const avgLng = uniqueMarkers.reduce((sum, m) => sum + m.lng, 0) / uniqueMarkers.length;
+      setMapCenter([avgLat, avgLng]);
+    } else if (regionalCenters[currentLocation]) {
+      // Use regional center for broad queries
+      setMapCenter(regionalCenters[currentLocation]);
+    } else {
+      // Default to US center
+      setMapCenter([39.8283, -98.5795]);
     }
   };
 
@@ -57,6 +184,7 @@ const Dashboard = () => {
       console.log('[Dashboard] API response:', response);
       if (response && response.content) {
         setAgentResponse(response.content);
+        parseAlertLocations(response.content, value);
       } else {
         console.error('[Dashboard] No content in response:', response);
         setAgentResponse('No alerts data received.');
@@ -79,6 +207,15 @@ const Dashboard = () => {
 
   const handleRefresh = () => {
     sessionStorage.removeItem('weatherAlerts');
+    localStorage.removeItem('dashboardResponse');
+    localStorage.removeItem('dashboardLocation');
+    localStorage.removeItem('dashboardFilter');
+    localStorage.removeItem('dashboardMarkers');
+    localStorage.removeItem('dashboardMapCenter');
+    setLocation('all US states');
+    setSelectedFilter('national');
+    setAlertMarkers([]);
+    setMapCenter([39.8283, -98.5795]);
     loadAlerts();
   };
 
@@ -222,17 +359,20 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Weather Context Map */}
+        {/* Weather Context Map with Alert Markers */}
         <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">📍 {location}</h2>
-          <MapEmbed 
-            mapUrl={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`} 
+          <h2 className="text-xl font-bold text-gray-900 mb-4">
+            📍 {location} {alertMarkers.length > 0 && `(${alertMarkers.length} Alert Zone${alertMarkers.length > 1 ? 's' : ''})`}
+          </h2>
+          <LocationMap 
+            center={mapCenter}
+            markers={alertMarkers}
             height="400px" 
           />
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-gray-700">
-              <strong>💡 Tip:</strong> Use the filters above to view alerts by region, state, or custom location.
-              For emergency resources, use <strong>Emergency Resources</strong> to find shelters or hospitals.
+              <strong>💡 Tip:</strong> {alertMarkers.length > 0 ? 'Red markers show areas with active weather alerts. Click markers for location details.' : 'Use the filters above to view alerts by region, state, or custom location.'}
+              {' '}For emergency resources, use <strong>Emergency Resources</strong> to find shelters or hospitals.
             </p>
           </div>
         </div>

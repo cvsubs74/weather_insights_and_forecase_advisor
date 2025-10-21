@@ -25,22 +25,19 @@ class WeatherAgentAPI {
     try {
       console.log('[API] Sending query:', userQuery);
       
-      // Create session if not already created
-      if (!this.sessionCreated) {
-        console.log('[API] Creating session...');
-        const sessionResponse = await this.client.post('/apps/weather_insights_agent/users/user_001/sessions', {
-          state: {}
-        });
-        this.sessionId = sessionResponse.data.id;
-        this.sessionCreated = true;
-        console.log('[API] Session created:', this.sessionId);
-      }
+      // Always create a new session for each query to avoid session issues
+      console.log('[API] Creating new session...');
+      const sessionResponse = await this.client.post('/apps/weather_insights_agent/users/user_001/sessions', {
+        state: {}
+      });
+      const currentSessionId = sessionResponse.data.id;
+      console.log('[API] Session created:', currentSessionId);
       
       // Use ADK API server /run endpoint
       const response = await this.client.post('/run', {
         appName: 'weather_insights_agent',
         userId: 'user_001',
-        sessionId: this.sessionId,
+        sessionId: currentSessionId,
         newMessage: {
           role: 'user',
           parts: [{ text: userQuery }],
@@ -82,7 +79,7 @@ class WeatherAgentAPI {
 
       return {
         content: responseText,
-        session_id: this.sessionId,
+        session_id: currentSessionId,
       };
     } catch (error) {
       console.error('[API] Error details:', {

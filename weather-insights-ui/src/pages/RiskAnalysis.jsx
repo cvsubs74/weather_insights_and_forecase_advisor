@@ -1,15 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ExclamationTriangleIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon, ChartBarIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import api from '../services/api';
 
 const RiskAnalysis = () => {
-  const [location, setLocation] = useState('');
-  const [alerts, setAlerts] = useState([]);
-  const [selectedAlert, setSelectedAlert] = useState(null);
-  const [riskAnalysis, setRiskAnalysis] = useState('');
+  const [location, setLocation] = useState(() => {
+    return localStorage.getItem('riskLocation') || '';
+  });
+  const [alerts, setAlerts] = useState(() => {
+    const saved = localStorage.getItem('riskAlerts');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [selectedAlert, setSelectedAlert] = useState(() => {
+    const saved = localStorage.getItem('riskSelectedAlert');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [riskAnalysis, setRiskAnalysis] = useState(() => {
+    return localStorage.getItem('riskAnalysis') || '';
+  });
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+
+  // Save to localStorage whenever state changes
+  useEffect(() => {
+    if (location) localStorage.setItem('riskLocation', location);
+  }, [location]);
+
+  useEffect(() => {
+    if (alerts.length > 0) localStorage.setItem('riskAlerts', JSON.stringify(alerts));
+  }, [alerts]);
+
+  useEffect(() => {
+    if (selectedAlert) localStorage.setItem('riskSelectedAlert', JSON.stringify(selectedAlert));
+  }, [selectedAlert]);
+
+  useEffect(() => {
+    if (riskAnalysis) localStorage.setItem('riskAnalysis', riskAnalysis);
+  }, [riskAnalysis]);
 
   const handleSearchAlerts = async (e) => {
     e.preventDefault();
@@ -65,13 +92,35 @@ const RiskAnalysis = () => {
     }
   };
 
+  const handleClear = () => {
+    setLocation('');
+    setAlerts([]);
+    setSelectedAlert(null);
+    setRiskAnalysis('');
+    localStorage.removeItem('riskLocation');
+    localStorage.removeItem('riskAlerts');
+    localStorage.removeItem('riskSelectedAlert');
+    localStorage.removeItem('riskAnalysis');
+  };
+
   return (
     <div className="space-y-6">
       {/* Step 1: Search for Alerts */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3 mb-4">
-          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white font-bold">1</div>
-          <h2 className="text-2xl font-bold text-gray-900">Search for Active Alerts</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white font-bold">1</div>
+            <h2 className="text-2xl font-bold text-gray-900">Search for Active Alerts</h2>
+          </div>
+          {(alerts.length > 0 || riskAnalysis) && (
+            <button
+              onClick={handleClear}
+              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              <ArrowPathIcon className="h-4 w-4" />
+              <span>Clear</span>
+            </button>
+          )}
         </div>
         <form onSubmit={handleSearchAlerts} className="space-y-4">
           <div>

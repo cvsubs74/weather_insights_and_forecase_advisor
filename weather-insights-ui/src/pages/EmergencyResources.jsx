@@ -1,24 +1,81 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { MagnifyingGlassIcon, MapPinIcon, BuildingOffice2Icon, PhoneIcon } from '@heroicons/react/24/outline';
-import MapEmbed from '../components/MapEmbed';
+import { MagnifyingGlassIcon, MapPinIcon, BuildingOffice2Icon, PhoneIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import LocationMap from '../components/LocationMap';
 import api from '../services/api';
 
 const EmergencyResources = () => {
-  const [location, setLocation] = useState('');
-  const [resourceType, setResourceType] = useState('shelters');
-  const [radius, setRadius] = useState(10);
-  const [agentResponse, setAgentResponse] = useState('');
-  const [mapUrl, setMapUrl] = useState('');
+  const [location, setLocation] = useState(() => {
+    return localStorage.getItem('emergencyLocation') || '';
+  });
+  const [resourceType, setResourceType] = useState(() => {
+    return localStorage.getItem('emergencyResourceType') || 'shelters';
+  });
+  const [radius, setRadius] = useState(() => {
+    const saved = localStorage.getItem('emergencyRadius');
+    return saved ? Number(saved) : 10;
+  });
+  const [agentResponse, setAgentResponse] = useState(() => {
+    return localStorage.getItem('emergencyResponse') || '';
+  });
+  const [mapUrl, setMapUrl] = useState(() => {
+    return localStorage.getItem('emergencyMapUrl') || '';
+  });
+  const [mapMarkers, setMapMarkers] = useState(() => {
+    const saved = localStorage.getItem('emergencyMapMarkers');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [mapCenter, setMapCenter] = useState(() => {
+    const saved = localStorage.getItem('emergencyMapCenter');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [loading, setLoading] = useState(false);
+
+  // Track if values are being loaded from localStorage to prevent triggering effects
+  const isLoadingFromStorage = React.useRef(true);
+  
+  // Save to localStorage whenever state changes (but not on initial load)
+  useEffect(() => {
+    if (isLoadingFromStorage.current) {
+      isLoadingFromStorage.current = false;
+      return;
+    }
+    if (location) localStorage.setItem('emergencyLocation', location);
+  }, [location]);
+
+  useEffect(() => {
+    if (!isLoadingFromStorage.current && location) {
+      localStorage.setItem('emergencyResourceType', resourceType);
+    }
+  }, [resourceType]);
+
+  useEffect(() => {
+    if (!isLoadingFromStorage.current && location) {
+      localStorage.setItem('emergencyRadius', radius.toString());
+    }
+  }, [radius]);
+
+  useEffect(() => {
+    if (agentResponse) localStorage.setItem('emergencyResponse', agentResponse);
+  }, [agentResponse]);
+
+  useEffect(() => {
+    if (mapUrl) localStorage.setItem('emergencyMapUrl', mapUrl);
+  }, [mapUrl]);
+
+  useEffect(() => {
+    if (mapMarkers.length > 0) localStorage.setItem('emergencyMapMarkers', JSON.stringify(mapMarkers));
+  }, [mapMarkers]);
+
+  useEffect(() => {
+    if (mapCenter) localStorage.setItem('emergencyMapCenter', JSON.stringify(mapCenter));
+  }, [mapCenter]);
 
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
     if (!location) return;
 
-    // Clear previous results and show loading
-    setAgentResponse('');
-    setMapUrl('');
+    // Don't clear localStorage data, only clear UI state for new search
     setLoading(true);
     
     try {
@@ -30,15 +87,13 @@ const EmergencyResources = () => {
       }
       
       if (response && response.content) {
-        // Extract map URL from response
-        const mapUrlMatch = response.content.match(/https:\/\/www\.google\.com\/maps[^\s)]+/);
         let cleanedContent = response.content;
         
+        // Extract map URL from response
+        const mapUrlMatch = response.content.match(/https:\/\/www\.google\.com\/maps[^\s)]+/);
         if (mapUrlMatch) {
           const originalUrl = mapUrlMatch[0];
           console.log('Found map URL:', originalUrl);
-          
-          // Use the URL directly - it's already formatted for embedding
           setMapUrl(originalUrl);
           
           // Remove the map URL and surrounding text from the response
@@ -47,9 +102,44 @@ const EmergencyResources = () => {
             .replace(/View map:\s*https:\/\/www\.google\.com\/maps[^\s)]+/g, '')
             .replace(/\n\n+/g, '\n\n')
             .trim();
-        } else {
-          console.log('No map URL found in response');
-          setMapUrl('');
+        }
+        
+        // Parse location data from response to extract coordinates
+        // Look for patterns like: "1. Name (lat, lng)" or "Location: lat, lng"
+        const markers = [];
+        const locationPattern = /(\d+)\.\s*([^(]+)\s*\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/g;
+        let match;
+        
+        while ((match = locationPattern.exec(response.content)) !== null) {
+          const [, index, name, lat, lng] = match;
+          markers.push({
+            lat: parseFloat(lat),
+            lng: parseFloat(lng),
+            title: name.trim(),
+            address: ''
+          });
+        }
+        
+        // Also try to extract from address format: "Address: street, city (lat, lng)"
+        const addressPattern = /([^:]+):\s*([^(]+)\s*\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/g;
+        while ((match = addressPattern.exec(response.content)) !== null) {
+          const [, name, address, lat, lng] = match;
+          if (!markers.some(m => m.lat === parseFloat(lat) && m.lng === parseFloat(lng))) {
+            markers.push({
+              lat: parseFloat(lat),
+              lng: parseFloat(lng),
+              title: name.trim(),
+              address: address.trim()
+            });
+          }
+        }
+        
+        console.log('Extracted markers:', markers);
+        
+        if (markers.length > 0) {
+          setMapMarkers(markers);
+          // Set center to first marker
+          setMapCenter([markers[0].lat, markers[0].lng]);
         }
         
         setAgentResponse(cleanedContent);
@@ -63,7 +153,13 @@ const EmergencyResources = () => {
   };
 
   // Auto-refresh when resourceType or radius changes (if location is already set)
+  // Only trigger if user actively changes these, not on initial load
+  const isInitialMount = React.useRef(true);
   React.useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (location && agentResponse) {
       handleSearch();
     }
@@ -75,11 +171,39 @@ const EmergencyResources = () => {
     alert(`Getting directions to ${resource.name}`);
   };
 
+  const handleClear = () => {
+    setLocation('');
+    setResourceType('shelters');
+    setRadius(10);
+    setAgentResponse('');
+    setMapUrl('');
+    setMapMarkers([]);
+    setMapCenter(null);
+    localStorage.removeItem('emergencyLocation');
+    localStorage.removeItem('emergencyResourceType');
+    localStorage.removeItem('emergencyRadius');
+    localStorage.removeItem('emergencyResponse');
+    localStorage.removeItem('emergencyMapUrl');
+    localStorage.removeItem('emergencyMapMarkers');
+    localStorage.removeItem('emergencyMapCenter');
+  };
+
   return (
     <div className="space-y-6">
       {/* Search Form */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Emergency Resources</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">Emergency Resources</h2>
+          {agentResponse && (
+            <button
+              onClick={handleClear}
+              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              <ArrowPathIcon className="h-4 w-4" />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
         <form onSubmit={handleSearch} className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -148,20 +272,33 @@ const EmergencyResources = () => {
 
       {agentResponse && !loading && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Map View - Show search location */}
+          {/* Map View - Show locations with markers */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">📍 Your Search Location</h3>
-            <MapEmbed 
-              mapUrl={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`} 
+            <h3 className="text-xl font-bold text-gray-900 mb-4">
+              📍 {mapMarkers.length > 0 ? `${mapMarkers.length} Locations Found` : 'Search Area'}
+            </h3>
+            <LocationMap 
+              center={mapCenter}
+              markers={mapMarkers}
               height="450px" 
             />
             <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-sm text-gray-700">
                 <strong>Searching near:</strong> {location}
               </p>
-              <p className="text-xs text-gray-600 mt-1">
-                Click "Open in Google Maps" to see nearby {resourceType === 'shelters' ? 'shelters' : 'hospitals'} with directions
-              </p>
+              {mapMarkers.length > 0 ? (
+                <p className="text-xs text-gray-600 mt-1">
+                  Red markers show {resourceType === 'shelters' ? 'shelter' : 'hospital'} locations. Click markers for details and directions.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-600 mt-1">
+                  {mapUrl && (
+                    <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                      Open in Google Maps for full view →
+                    </a>
+                  )}
+                </p>
+              )}
             </div>
           </div>
           

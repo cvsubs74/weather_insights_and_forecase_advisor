@@ -1,12 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import api from '../services/api';
 
 const Forecast = () => {
-  const [location, setLocation] = useState('');
-  const [agentResponse, setAgentResponse] = useState('');
+  const [location, setLocation] = useState(() => {
+    return localStorage.getItem('forecastLocation') || '';
+  });
+  const [agentResponse, setAgentResponse] = useState(() => {
+    return localStorage.getItem('forecastResponse') || '';
+  });
   const [loading, setLoading] = useState(false);
+
+  // Save to localStorage whenever location or response changes
+  useEffect(() => {
+    if (location) {
+      localStorage.setItem('forecastLocation', location);
+    }
+  }, [location]);
+
+  useEffect(() => {
+    if (agentResponse) {
+      localStorage.setItem('forecastResponse', agentResponse);
+    }
+  }, [agentResponse]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -24,6 +41,13 @@ const Forecast = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleClear = () => {
+    setLocation('');
+    setAgentResponse('');
+    localStorage.removeItem('forecastLocation');
+    localStorage.removeItem('forecastResponse');
   };
 
   return (
@@ -57,7 +81,16 @@ const Forecast = () => {
         <>
           {/* Agent Response */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Weather Forecast for {location}</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Weather Forecast for {location}</h3>
+              <button
+                onClick={handleClear}
+                className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <ArrowPathIcon className="h-4 w-4" />
+                <span>Clear</span>
+              </button>
+            </div>
             <div className="space-y-4">
               <ReactMarkdown
                 components={{

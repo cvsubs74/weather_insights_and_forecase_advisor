@@ -2,18 +2,36 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
 import { UserIcon, CloudIcon } from '@heroicons/react/24/outline';
-import MapEmbed from '../components/MapEmbed';
+import LocationMap from '../components/LocationMap';
 import api from '../services/api';
 
 const Chat = () => {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: 'Hello! I\'m your Weather Insights and Forecast Advisor. I can help you with:\n\n- Weather forecasts for any location\n- Active weather alerts\n- Emergency shelter locations\n- Evacuation routes\n- Risk analysis for severe weather\n- Historical weather data\n\nWhat would you like to know?',
-      timestamp: new Date(),
-      mapUrl: null
+  // Load messages from localStorage or use default welcome message
+  const [messages, setMessages] = useState(() => {
+    const savedMessages = localStorage.getItem('chatMessages');
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        // Convert timestamp strings back to Date objects
+        return parsed.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      } catch (e) {
+        console.error('Failed to parse saved messages:', e);
+      }
     }
-  ]);
+    return [
+      {
+        role: 'assistant',
+        content: 'Hello! I\'m your Weather Insights and Forecast Advisor. I can help you with:\n\n- Weather forecasts for any location\n- Active weather alerts\n- Emergency shelter locations\n- Evacuation routes\n- Risk analysis for severe weather\n- Historical weather data\n\nWhat would you like to know?',
+        timestamp: new Date(),
+        mapUrl: null,
+        mapMarkers: [],
+        mapCenter: null
+      }
+    ];
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -21,6 +39,11 @@ const Chat = () => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('chatMessages', JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -43,21 +66,43 @@ const Chat = () => {
     try {
       const response = await api.query(input);
       
-      // Extract map URL from response if present and remove it from text
+      // Extract map URL and coordinates from response
       let mapUrl = null;
+      let mapMarkers = [];
+      let mapCenter = null;
       let content = response.content || 'I apologize, but I encountered an error processing your request.';
       
       if (content) {
+        // Extract map URL
         const mapUrlMatch = content.match(/https:\/\/www\.google\.com\/maps[^\s)]+/);
         if (mapUrlMatch) {
           mapUrl = mapUrlMatch[0];
-          // Remove the map URL and any surrounding text like "View map:" or markdown link
+          // Remove the map URL from content
           content = content
             .replace(/View map:\s*\[?https:\/\/www\.google\.com\/maps[^\s)\]]+\]?/gi, '')
             .replace(/\[View map\]\(https:\/\/www\.google\.com\/maps[^\)]+\)/gi, '')
             .replace(/https:\/\/www\.google\.com\/maps[^\s)]+/g, '')
-            .replace(/\n\n+/g, '\n\n') // Clean up extra newlines
+            .replace(/\n\n+/g, '\n\n')
             .trim();
+        }
+        
+        // Parse coordinates from response - pattern: "Name (lat, lng)"
+        const locationPattern = /(\d+)\.\s*\*\*([^*]+)\*\*\s*\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/g;
+        let match;
+        
+        while ((match = locationPattern.exec(response.content)) !== null) {
+          const [, index, name, lat, lng] = match;
+          mapMarkers.push({
+            lat: parseFloat(lat),
+            lng: parseFloat(lng),
+            title: name.trim(),
+            address: ''
+          });
+        }
+        
+        // Set center to first marker if markers exist
+        if (mapMarkers.length > 0) {
+          mapCenter = [mapMarkers[0].lat, mapMarkers[0].lng];
         }
       }
       
@@ -65,7 +110,9 @@ const Chat = () => {
         role: 'assistant',
         content: content,
         timestamp: new Date(),
-        mapUrl: mapUrl
+        mapUrl: mapUrl,
+        mapMarkers: mapMarkers,
+        mapCenter: mapCenter
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -75,7 +122,9 @@ const Chat = () => {
         role: 'assistant',
         content: 'I apologize, but I encountered an error. Please try again.',
         timestamp: new Date(),
-        mapUrl: null
+        mapUrl: null,
+        mapMarkers: [],
+        mapCenter: null
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
@@ -94,15 +143,40 @@ const Chat = () => {
     setInput(action);
   };
 
+  const handleClearChat = () => {
+    const welcomeMessage = {
+      role: 'assistant',
+      content: 'Hello! I\'m your Weather Insights and Forecast Advisor. I can help you with:\n\n- Weather forecasts for any location\n- Active weather alerts\n- Emergency shelter locations\n- Evacuation routes\n- Risk analysis for severe weather\n- Historical weather data\n\nWhat would you like to know?',
+      timestamp: new Date(),
+      mapUrl: null,
+      mapMarkers: [],
+      mapCenter: null
+    };
+    setMessages([welcomeMessage]);
+    localStorage.setItem('chatMessages', JSON.stringify([welcomeMessage]));
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Chat Header */}
       <div className="bg-white rounded-t-lg shadow-md p-4 border-b">
-        <h2 className="text-xl font-bold text-gray-900 flex items-center">
-          <CloudIcon className="h-6 w-6 mr-2 text-primary" />
-          Weather Advisor Chat
-        </h2>
-        <p className="text-sm text-gray-600 mt-1">Ask me anything about weather, forecasts, and emergency planning</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+              <CloudIcon className="h-6 w-6 mr-2 text-primary" />
+              Weather Advisor Chat
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">Ask me anything about weather, forecasts, and emergency planning</p>
+          </div>
+          {messages.length > 1 && (
+            <button
+              onClick={handleClearChat}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Clear Chat
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages Container */}
@@ -159,10 +233,37 @@ const Chat = () => {
                   </p>
                 </div>
                 
-                {/* Embedded Map */}
-                {message.role === 'assistant' && message.mapUrl && (
+                {/* Embedded Map with Markers */}
+                {message.role === 'assistant' && (message.mapMarkers?.length > 0 || message.mapUrl) && (
                   <div className="rounded-lg overflow-hidden shadow-md">
-                    <MapEmbed mapUrl={message.mapUrl} height="300px" />
+                    {message.mapMarkers?.length > 0 ? (
+                      <div>
+                        <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700 font-medium">
+                          📍 {message.mapMarkers.length} Location{message.mapMarkers.length > 1 ? 's' : ''} Found
+                        </div>
+                        <LocationMap 
+                          center={message.mapCenter}
+                          markers={message.mapMarkers}
+                          height="350px" 
+                        />
+                      </div>
+                    ) : message.mapUrl ? (
+                      <div>
+                        <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700 font-medium">
+                          📍 Map View
+                        </div>
+                        <iframe
+                          width="100%"
+                          height="300px"
+                          frameBorder="0"
+                          style={{ border: 0 }}
+                          src={message.mapUrl}
+                          allowFullScreen
+                          loading="lazy"
+                          title="Map"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
