@@ -49,6 +49,30 @@ const Chat = () => {
     scrollToBottom();
   }, [messages]);
 
+  // Listen for session expiration events
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('[Chat] Session expired, clearing chat history');
+      // Reset to welcome message
+      setMessages([
+        {
+          role: 'assistant',
+          content: 'Hello! I\'m your Weather Insights and Forecast Advisor. I can help you with:\n\n- Weather forecasts for any location\n- Active weather alerts\n- Emergency shelter locations\n- Evacuation routes\n- Risk analysis for severe weather\n- Historical weather data\n\nWhat would you like to know?',
+          timestamp: new Date(),
+          mapUrl: null,
+          mapMarkers: [],
+          mapCenter: null
+        }
+      ]);
+    };
+    
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('sessionExpired', handleSessionExpired);
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;

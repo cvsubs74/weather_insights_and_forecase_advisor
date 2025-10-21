@@ -38,6 +38,23 @@ const RiskAnalysis = () => {
     if (riskAnalysis) localStorage.setItem('riskAnalysis', riskAnalysis);
   }, [riskAnalysis]);
 
+  // Listen for session expiration events
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('[RiskAnalysis] Session expired, clearing state');
+      setLocation('');
+      setAlerts([]);
+      setSelectedAlert(null);
+      setRiskAnalysis('');
+    };
+    
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('sessionExpired', handleSessionExpired);
+    };
+  }, []);
+
   const handleSearchAlerts = async (e) => {
     e.preventDefault();
     if (!location.trim()) return;

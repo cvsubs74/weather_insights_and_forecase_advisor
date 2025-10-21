@@ -1,16 +1,19 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   HomeIcon, 
   CloudIcon, 
   ExclamationTriangleIcon, 
   ChartBarIcon, 
   MapPinIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
+import api from '../services/api';
 
 const Layout = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -21,6 +24,14 @@ const Layout = ({ children }) => {
   ];
 
   const isActive = (path) => location.pathname === path;
+
+  const handleClearAll = () => {
+    if (window.confirm('This will clear all saved data and chat history. Continue?')) {
+      api.resetSession();
+      navigate('/');
+      window.location.reload();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -33,6 +44,14 @@ const Layout = ({ children }) => {
               <h1 className="text-2xl font-bold">Weather Insights & Forecast Advisor</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <button 
+                onClick={handleClearAll}
+                className="flex items-center space-x-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                title="Clear all data and start fresh"
+              >
+                <ArrowPathIcon className="h-5 w-5" />
+                <span className="text-sm font-medium">Clear All</span>
+              </button>
               <button className="text-white hover:text-gray-200">
                 <span className="sr-only">Help</span>
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

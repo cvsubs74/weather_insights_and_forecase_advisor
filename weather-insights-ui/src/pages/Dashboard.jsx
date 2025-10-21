@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import AlertCard from '../components/AlertCard';
 import LocationMap from '../components/LocationMap';
+import SevereWeatherCard from '../components/SevereWeatherCard';
 import api from '../services/api';
 import { 
   MagnifyingGlassIcon, 
@@ -11,7 +12,9 @@ import {
   MapIcon,
   ChartBarIcon,
   BuildingOffice2Icon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline';
 
 const Dashboard = () => {
@@ -34,6 +37,13 @@ const Dashboard = () => {
     const saved = localStorage.getItem('dashboardMapCenter');
     return saved ? JSON.parse(saved) : [39.8283, -98.5795];
   });
+  const [severeEvents, setSevereEvents] = useState(() => {
+    const saved = localStorage.getItem('dashboardSevereEvents');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const eventsPerPage = 3;
 
   // Save to localStorage whenever state changes
   useEffect(() => {
@@ -57,10 +67,39 @@ const Dashboard = () => {
   }, [mapCenter]);
 
   useEffect(() => {
+    if (severeEvents.length > 0) localStorage.setItem('dashboardSevereEvents', JSON.stringify(severeEvents));
+  }, [severeEvents]);
+
+  useEffect(() => {
     // Only load alerts if there's no saved response
     if (!agentResponse) {
       loadAlerts();
     }
+    // Load severe weather events on mount
+    if (severeEvents.length === 0) {
+      loadSevereWeatherEvents();
+    }
+    
+    // Listen for session expiration events
+    const handleSessionExpired = () => {
+      console.log('[Dashboard] Session expired, clearing state');
+      // Clear all dashboard state
+      setAgentResponse('');
+      setLocation('all US states');
+      setSelectedFilter('national');
+      setAlertMarkers([]);
+      setMapCenter([39.8283, -98.5795]);
+      setSevereEvents([]);
+      // Reload data with new session
+      loadAlerts();
+      loadSevereWeatherEvents();
+    };
+    
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('sessionExpired', handleSessionExpired);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -80,6 +119,138 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadSevereWeatherEvents = async () => {
+    if (loadingEvents) return;
+    
+    setLoadingEvents(true);
+    try {
+      const response = await api.getSevereWeatherEvents();
+      
+      // Parse the response to extract severe weather events
+      const events = parseSevereWeatherEvents(response);
+      setSevereEvents(events);
+    } catch (error) {
+      console.error('Failed to load severe weather events:', error);
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const parseSevereWeatherEvents = (response) => {
+    const events = [];
+    const seenStorms = new Set(); // Track unique storms
+    
+    // Parse hurricanes from response
+    if (response.hurricanes?.content) {
+      const hurricaneText = response.hurricanes.content.toLowerCase();
+      
+      // Look for hurricane/tropical storm mentions
+      if (hurricaneText.includes('hurricane') || hurricaneText.includes('tropical storm')) {
+        // Extract storm names and details (simplified parsing)
+        const lines = response.hurricanes.content.split('\n');
+        
+        for (const line of lines) {
+          // Skip lines that are just about hurricane path/visualization
+          const lowerLine = line.toLowerCase();
+          if (lowerLine.includes('hurricane path') || 
+              lowerLine.includes('view hurricane') ||
+              lowerLine.includes('visualization') ||
+              lowerLine.includes('view in google earth') ||
+              lowerLine.includes('download kmz') ||
+              lowerLine.includes('how to view') ||
+              lowerLine.includes('forecast cone') ||
+              lowerLine.includes('track path') ||
+              line.trim().startsWith('**View') ||
+              line.trim().startsWith('**Download') ||
+              line.trim().startsWith('**How to')) {
+            continue;
+          }
+          
+          if (line.includes('Hurricane') || line.includes('Tropical Storm')) {
+            const nameMatch = line.match(/(Hurricane|Tropical Storm)\s+(\w+)/i);
+            if (nameMatch) {
+              const stormName = nameMatch[2];
+              
+              // Skip if we've already seen this storm
+              if (seenStorms.has(stormName)) {
+                continue;
+              }
+              seenStorms.add(stormName);
+              
+              const currentStorm = {
+                type: 'hurricane',
+                name: `${nameMatch[1]} ${nameMatch[2]}`,
+                location: 'Atlantic/Pacific',
+                severity: line.toLowerCase().includes('hurricane') ? 'Extreme' : 'Severe',
+                description: line.trim(),
+                details: {},
+                trackUrl: 'https://www.nhc.noaa.gov/',
+                advisoryUrl: 'https://www.nhc.noaa.gov/',
+                lastUpdate: new Date().toISOString()
+              };
+              
+              // Extract wind speed if present
+              const windMatch = line.match(/(\d+)\s*mph/i);
+              if (windMatch) {
+                currentStorm.details.windSpeed = `${windMatch[1]} mph`;
+              }
+              
+              events.push(currentStorm);
+            }
+          }
+        }
+      }
+    }
+    
+    // Parse severe alerts from response
+    if (response.alerts?.content) {
+      const alertText = response.alerts.content;
+      const lines = alertText.split('\n');
+      
+      for (const line of lines) {
+        // Look for heat wave mentions
+        if (line.toLowerCase().includes('heat') && line.toLowerCase().includes('warning')) {
+          events.push({
+            type: 'heat',
+            name: 'Heat Wave',
+            location: extractLocation(line) || 'Multiple States',
+            severity: 'Severe',
+            description: line.trim(),
+            details: {},
+            lastUpdate: new Date().toISOString()
+          });
+        }
+        
+        // Look for flood mentions
+        if (line.toLowerCase().includes('flood') && line.toLowerCase().includes('warning')) {
+          events.push({
+            type: 'flood',
+            name: 'Flood Warning',
+            location: extractLocation(line) || 'Multiple Areas',
+            severity: 'Severe',
+            description: line.trim(),
+            details: {},
+            lastUpdate: new Date().toISOString()
+          });
+        }
+      }
+    }
+    
+    // Limit to top 6 most severe events
+    return events.slice(0, 6);
+  };
+
+  const extractLocation = (text) => {
+    // Simple location extraction - look for state names
+    const states = ['California', 'Texas', 'Florida', 'New York', 'Arizona', 'Nevada', 'Louisiana'];
+    for (const state of states) {
+      if (text.includes(state)) {
+        return state;
+      }
+    }
+    return null;
   };
 
   const parseAlertLocations = (content, currentLocation) => {
@@ -206,17 +377,27 @@ const Dashboard = () => {
   };
 
   const handleRefresh = () => {
+    // Reset session to get fresh data
+    api.resetSession();
+    
+    // Clear local state
     sessionStorage.removeItem('weatherAlerts');
     localStorage.removeItem('dashboardResponse');
     localStorage.removeItem('dashboardLocation');
     localStorage.removeItem('dashboardFilter');
     localStorage.removeItem('dashboardMarkers');
     localStorage.removeItem('dashboardMapCenter');
+    localStorage.removeItem('dashboardSevereEvents');
     setLocation('all US states');
     setSelectedFilter('national');
     setAlertMarkers([]);
     setMapCenter([39.8283, -98.5795]);
+    setSevereEvents([]);
+    setAgentResponse('');
+    
+    // Reload with new session
     loadAlerts();
+    loadSevereWeatherEvents();
   };
 
   const quickActions = [
@@ -247,6 +428,55 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Severe Weather Events Section */}
+      {severeEvents.length > 0 && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-gray-900">🌪️ Active Severe Weather Events</h2>
+            <div className="flex items-center gap-3">
+              {severeEvents.length > eventsPerPage && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCarouselIndex(Math.max(0, carouselIndex - eventsPerPage))}
+                    disabled={carouselIndex === 0}
+                    className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeftIcon className="h-5 w-5 text-gray-700" />
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {Math.floor(carouselIndex / eventsPerPage) + 1} / {Math.ceil(severeEvents.length / eventsPerPage)}
+                  </span>
+                  <button
+                    onClick={() => setCarouselIndex(Math.min(severeEvents.length - eventsPerPage, carouselIndex + eventsPerPage))}
+                    disabled={carouselIndex + eventsPerPage >= severeEvents.length}
+                    className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRightIcon className="h-5 w-5 text-gray-700" />
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={loadSevereWeatherEvents}
+                disabled={loadingEvents}
+                className="text-sm text-primary hover:text-blue-900 font-medium disabled:opacity-50"
+              >
+                {loadingEvents ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {severeEvents.slice(carouselIndex, carouselIndex + eventsPerPage).map((event, index) => (
+              <SevereWeatherCard key={carouselIndex + index} event={event} />
+            ))}
+          </div>
+          {severeEvents.length > eventsPerPage && (
+            <div className="mt-4 text-center text-sm text-gray-500">
+              Showing {carouselIndex + 1}-{Math.min(carouselIndex + eventsPerPage, severeEvents.length)} of {severeEvents.length} events
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filter Tabs */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">🌍 View Alerts By:</h2>

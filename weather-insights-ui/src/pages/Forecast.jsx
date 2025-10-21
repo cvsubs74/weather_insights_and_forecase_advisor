@@ -25,6 +25,21 @@ const Forecast = () => {
     }
   }, [agentResponse]);
 
+  // Listen for session expiration events
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('[Forecast] Session expired, clearing state');
+      setLocation('');
+      setAgentResponse('');
+    };
+    
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('sessionExpired', handleSessionExpired);
+    };
+  }, []);
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!location.trim()) return;

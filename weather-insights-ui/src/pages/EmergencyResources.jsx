@@ -71,6 +71,26 @@ const EmergencyResources = () => {
     if (mapCenter) localStorage.setItem('emergencyMapCenter', JSON.stringify(mapCenter));
   }, [mapCenter]);
 
+  // Listen for session expiration events
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('[EmergencyResources] Session expired, clearing state');
+      setLocation('');
+      setResourceType('shelters');
+      setRadius(10);
+      setAgentResponse('');
+      setMapUrl('');
+      setMapMarkers([]);
+      setMapCenter(null);
+    };
+    
+    window.addEventListener('sessionExpired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('sessionExpired', handleSessionExpired);
+    };
+  }, []);
+
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
     if (!location) return;
