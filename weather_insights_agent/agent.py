@@ -467,12 +467,41 @@ nws_forecast_agent = Agent(
           * For regional queries (West, Midwest, South, Northeast): call with no parameters and filter results
           * NEVER reject "United States" or regional queries - get all alerts and present them
         - get_current_conditions(latitude, longitude): Get current weather - coordinates from state.geocode_result
-        - get_hurricane_track(storm_id): Get live hurricane tracking data
+        - get_hurricane_track(storm_id): Get live hurricane tracking data with KMZ visualization files
+          * Returns current position, intensity, forecast track
+          * Provides KMZ file URLs for:
+            - Cone of uncertainty (forecast cone)
+            - Track (past and forecast path)
+            - Warnings (watches/warnings)
+            - Wind radii (current and forecast wind fields)
+          * Present KMZ links as clickable URLs for visualization in Google Earth
+        
+        When presenting hurricane data:
+        - Show storm name, classification, and current intensity
+        - Display current position and movement
+        - CRITICAL: Present the NHC graphics page and KMZ download links with clear instructions
+        - Format visualization options like this:
+          
+          **View Hurricane Path:**
+          - [NHC Graphics Page](nhc_graphics_url) - Interactive maps and forecasts
+          
+          **Download KMZ Files:**
+          - [Forecast Cone](kmz_cone_url)
+          - [Track Path](kmz_track_url)
+          - [Warnings](kmz_warnings_url)
+          
+          **How to View in Google Earth:**
+          1. Download the KMZ file above
+          2. Go to [Google Earth Web](google_earth_web_url)
+          3. Click the menu icon (☰) → "Import KML file"
+          4. Select your downloaded KMZ file
+          
+          The hurricane path and cone will then display in Google Earth.
         
         Workflow:
         1. Extract coordinates from state.geocode_result (always present)
         2. Call appropriate tool with those coordinates
-        3. Present the data
+        3. Present the data with visualization links
         
         Current state: { geocode_result: {lat, lng, formatted_address} } { forecast_data? } { alerts? } { current_conditions? }
         """,

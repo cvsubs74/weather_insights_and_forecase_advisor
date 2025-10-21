@@ -726,49 +726,125 @@ def get_current_conditions(
 @track_tool_call("get_hurricane_track")
 def get_hurricane_track(
     tool_context: ToolContext,
-    storm_id: str
+    storm_id: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Get live hurricane tracking data from NWS API.
+    """Get live hurricane tracking data and projected path from NWS/NHC with KMZ visualization links.
     
     Args:
-        storm_id (str): Storm ID (e.g., "AL092024" for Atlantic storm)
+        storm_id (str, optional): Storm ID (e.g., "AL092024"). If not provided, returns all active tropical cyclones.
         
     Returns:
-        dict: Hurricane tracking data including position, intensity, and projected path
+        dict: Hurricane tracking data including current position, intensity, forecast track, and KMZ visualization files
     """
     try:
-        # Note: NWS API for tropical cyclones uses different endpoints
-        # This is a simplified implementation - in production, you'd use:
-        # - National Hurricane Center (NHC) data
-        # - Tropical cyclone marine forecasts
+        # For real-time data, use NHC's JSON feeds
+        # Get active tropical cyclones
+        active_storms_url = "https://www.nhc.noaa.gov/CurrentStorms.json"
         
-        # Get tropical cyclone products
-        products_url = f"{NWS_API_BASE}/products/types/TCM"
-        products_response = requests.get(products_url, headers=NWS_HEADERS, timeout=10)
-        products_response.raise_for_status()
-        products_data = products_response.json()
+        response = requests.get(active_storms_url, timeout=15)
+        response.raise_for_status()
+        storms_data = response.json()
         
-        # This is a simplified response - in production, parse actual hurricane data
-        hurricane_data = {
-            "storm_id": storm_id,
-            "message": "Hurricane tracking requires National Hurricane Center (NHC) data integration",
-            "nhc_url": "https://www.nhc.noaa.gov/",
+        active_storms = []
+        
+        # Parse active storms
+        if "activeStorms" in storms_data:
+            for storm in storms_data["activeStorms"]:
+                storm_id_val = storm.get("id", "")
+                
+                # If storm_id specified, filter for that storm
+                if storm_id and storm_id_val.lower() != storm_id.lower():
+                    continue
+                
+                # KMZ URLs need uppercase storm ID
+                storm_id_upper = storm_id_val.upper()
+                
+                # Get advisory number for accurate KMZ URLs
+                adv_num = "latest"
+                if "publicAdvisory" in storm and isinstance(storm["publicAdvisory"], dict):
+                    adv_num = storm["publicAdvisory"].get("advNum", "latest")
+                
+                storm_info = {
+                    "id": storm_id_val,
+                    "name": storm.get("name"),
+                    "classification": storm.get("classification"),
+                    "intensity": storm.get("intensity"),
+                    "pressure": storm.get("pressure"),
+                    "wind_speed": storm.get("windSpeed"),
+                    "movement": storm.get("movement"),
+                    "current_position": {
+                        "latitude": storm.get("latitudeNumeric"),
+                        "longitude": storm.get("longitudeNumeric")
+                    },
+                    "last_update": storm.get("lastUpdate"),
+                    "public_advisory_url": storm.get("publicAdvisory", {}).get("url") if isinstance(storm.get("publicAdvisory"), dict) else None,
+                    "forecast_advisory_url": storm.get("forecastAdvisory", {}).get("url") if isinstance(storm.get("forecastAdvisory"), dict) else None,
+                    "wind_graphic_url": storm.get("windFieldGraphic"),
+                    "cone_graphic_url": storm.get("trackConeGraphic"),
+                    
+                    # NHC KMZ files for visualization (use uppercase ID and advisory number)
+                    "kmz_files": {
+                        "cone": f"https://www.nhc.noaa.gov/storm_graphics/api/{storm_id_upper}_{adv_num}adv_CONE.kmz",
+                        "track": f"https://www.nhc.noaa.gov/storm_graphics/api/{storm_id_upper}_{adv_num}adv_TRACK.kmz",
+                        "warnings": f"https://www.nhc.noaa.gov/storm_graphics/api/{storm_id_upper}_{adv_num}adv_WW.kmz",
+                        "initial_radii": f"https://www.nhc.noaa.gov/storm_graphics/api/{storm_id_upper}_initialradii_{adv_num}adv.kmz",
+                        "forecast_radii": f"https://www.nhc.noaa.gov/storm_graphics/api/{storm_id_upper}_forecastradii_{adv_num}adv.kmz"
+                    },
+                    
+                    # NHC Graphics page - shows all visualizations
+                    "nhc_graphics_url": f"https://www.nhc.noaa.gov/graphics_{storm.get('binNumber', '').lower()}.shtml",
+                    
+                    # Google Earth Web import instructions
+                    "google_earth_web_url": "https://earth.google.com/web/",
+                    "visualization_instructions": "To view in Google Earth: 1) Download the KMZ file, 2) Go to earth.google.com/web, 3) Click menu (☰) → Import KML file, 4) Select the downloaded KMZ file",
+                    
+                    # Shapefile downloads
+                    "shapefiles": {
+                        "5day_forecast": f"https://www.nhc.noaa.gov/gis/forecast/archive/{storm_id_val.lower()}_5day_latest.zip",
+                        "forecast_radii": f"https://www.nhc.noaa.gov/gis/forecast/archive/{storm_id_val.lower()}_fcst_latest.zip"
+                    }
+                }
+                
+                # Get forecast track points if available
+                if "forecastTrack" in storm:
+                    storm_info["forecast_track"] = storm["forecastTrack"]
+                
+                active_storms.append(storm_info)
+        
+        # Save to state
+        tool_context.state["hurricane_data"] = {
+            "active_storms": active_storms,
             "timestamp": datetime.now().isoformat()
         }
         
-        logger.info(f"Hurricane tracking requested for {storm_id}")
+        if not active_storms:
+            return {
+                "status": "success",
+                "message": "No active tropical cyclones at this time",
+                "data": {
+                    "active_storms": [],
+                    "nhc_url": "https://www.nhc.noaa.gov/"
+                }
+            }
+        
+        logger.info(f"Retrieved {len(active_storms)} active tropical cyclone(s) with KMZ visualization links")
         
         return {
-            "status": "partial",
-            "data": hurricane_data,
-            "message": "Full hurricane tracking requires NHC API integration"
+            "status": "success",
+            "data": {
+                "active_storms": active_storms,
+                "count": len(active_storms),
+                "nhc_url": "https://www.nhc.noaa.gov/",
+                "visualization_note": "KMZ files can be opened in Google Earth or converted to GeoJSON for web mapping",
+                "timestamp": datetime.now().isoformat()
+            }
         }
     
     except Exception as e:
         logger.error(f"Error getting hurricane track: {str(e)}")
         return {
             "status": "error",
-            "message": f"Failed to get hurricane data: {str(e)}"
+            "message": f"Failed to get hurricane data: {str(e)}. Check https://www.nhc.noaa.gov/ for manual updates."
         }
 
 
