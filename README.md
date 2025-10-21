@@ -11,16 +11,43 @@ The Weather Insights and Forecast Advisor is a production-ready, full-stack mult
 **Key Features:**
 - 🌐 **Production Deployment:** Live on Firebase Hosting with Cloud Run backend
 - 🎨 **Modern UI:** Interactive React dashboard with real-time weather visualization
+- 🌪️ **Severe Weather Cards:** Active hurricanes, heat waves, and flooding displayed prominently
+- 🔄 **Session Management:** 30-minute session persistence with automatic state cleanup
 - 🤖 **Multi-Agent System:** Specialized agents for location, forecast, data analysis, and insights
 - 📊 **Historical Data:** Access to NOAA weather datasets via BigQuery
 - 🗺️ **Google Maps Integration:** Geocoding, directions, emergency resources, and interactive maps
-- ⚡ **Real-time Forecasts:** National Weather Service API integration
+- ⚡ **Real-time Forecasts:** National Weather Service API integration with live hurricane tracking
 - 🎯 **Risk Analysis:** Two-tier analysis for simple and complex weather events
+- 🌊 **Hurricane Tracking:** NHC integration with KMZ files and Google Earth visualization
 
 ## 🌐 Live Demo
 
 - **Frontend:** https://weather-insights-forecaster.web.app
-- **ADK Agent:** https://weather-insights-agent-79797180773.us-central1.run.app
+- **Backend API:** https://weather-insights-agent-79797180773.us-central1.run.app
+
+## 🆕 Recent Updates
+
+### Hurricane Tracking & Visualization (October 2025)
+- **NHC Integration:** Real-time hurricane data from National Hurricane Center CurrentStorms.json API
+- **KMZ File Support:** Download forecast cone, track path, and warning zone KMZ files
+- **Google Earth Integration:** Direct links to visualize hurricane paths in Google Earth Web
+- **Storm Details:** Current position, intensity, wind speed, pressure, movement direction
+- **Advisory Links:** Direct links to NHC graphics and advisory pages
+
+### Severe Weather Event Cards
+- **Active Events Dashboard:** Displays up to 6 active severe weather events
+- **Event Types:** Hurricanes, tropical storms, heat waves, flood warnings
+- **Carousel Navigation:** Browse through events with left/right arrows (3 per page)
+- **Color-Coded Cards:** Gradient headers based on event type (red/orange for hurricanes, orange/yellow for heat, blue for floods)
+- **Severity Badges:** Extreme, Severe, Moderate, Minor classifications
+- **Real-time Updates:** Automatic refresh of severe weather data
+
+### Session Management & State Persistence
+- **30-Minute Sessions:** Maintains conversation context and state for 30 minutes
+- **Automatic Cleanup:** Clears all data when session expires
+- **Manual Reset:** "Clear All" button in header to start fresh
+- **Cross-Page Sync:** Session expiration clears data across all pages (Dashboard, Chat, Forecast, Risk Analysis, Emergency Resources)
+- **Smart Reuse:** Reuses valid sessions instead of creating new ones on every query
 
 ---
 
@@ -751,11 +778,13 @@ The system uses `tool_context.state` as a shared data store:
 ### Core Technologies
 - **Framework:** Google ADK (Agent Development Kit)
 - **LLM:** Gemini 2.5 Flash
+- **Frontend:** React 18 with Tailwind CSS
 - **Data Platform:** Google BigQuery
 - **Weather API:** National Weather Service (NWS) API
-- **Cloud Platform:** Google Cloud Platform
+- **Hurricane Data:** National Hurricane Center (NHC) API
+- **Cloud Platform:** Google Cloud Platform (Cloud Run + Firebase Hosting)
 
-### Python Libraries
+### Backend Libraries
 ```
 google-adk>=1.10.0
 google-cloud-bigquery>=3.10.0
@@ -764,10 +793,22 @@ python-dotenv>=1.0.0
 google-auth>=2.0.0
 ```
 
+### Frontend Libraries
+```
+react>=18.0.0
+react-router-dom>=6.0.0
+axios>=1.6.0
+react-markdown>=9.0.0
+leaflet>=1.9.0 (for maps)
+@heroicons/react>=2.0.0
+tailwindcss>=3.0.0
+```
+
 ### External APIs
 1. **NWS API:** https://api.weather.gov (free, no API key required)
-2. **Google Maps API:** Geocoding, Directions, Places, Maps JavaScript API (requires API key)
-3. **BigQuery Public Datasets:** NOAA GSOD, GHCN-D, GHCN-M, Census ACS (requires GCP project)
+2. **NHC API:** https://www.nhc.noaa.gov/CurrentStorms.json (hurricane tracking, free)
+3. **Google Maps API:** Geocoding, Directions, Places, Maps JavaScript API (requires API key)
+4. **BigQuery Public Datasets:** NOAA GSOD, GHCN-D, GHCN-M, Census ACS (requires GCP project)
 
 ---
 
@@ -796,24 +837,54 @@ GREEN_AGENT_BUCKET=green-agent-data
 ## Deployment
 
 ### Local Development
+
+**Backend:**
 ```bash
-cd weather_insights_and_forecast_advisor
+cd weather_insights_agent
 pip install -r requirements.txt
 adk web  # Start ADK web interface at http://localhost:8000
 ```
 
-### Cloud Deployment
+**Frontend:**
 ```bash
-# Deploy to Google Cloud Run
-./deploy_to_cloud_run.sh
-
-# Prerequisites:
-# - Enable BigQuery API
-# - Enable Cloud Run API
-# - Enable Maps JavaScript API, Geocoding API, Directions API, Places API
-# - Configure service account with BigQuery permissions
-# - Set GOOGLE_MAPS_API_KEY in environment
+cd weather-insights-ui
+npm install
+npm start  # Start React dev server at http://localhost:3000
 ```
+
+### Production Deployment
+
+**Deploy Backend to Cloud Run:**
+```bash
+./deploy_backend.sh
+
+# This script:
+# - Deploys weather_insights_agent to Google Cloud Run
+# - Uses ADK CLI with cloud_run deployment
+# - Loads environment variables from weather_insights_agent/.env
+# - Returns backend API URL
+```
+
+**Deploy Frontend to Firebase Hosting:**
+```bash
+./deploy_firebase.sh
+
+# This script:
+# - Creates production .env.production with backend URL
+# - Builds React app (npm run build)
+# - Deploys to Firebase Hosting
+# - Returns frontend URL
+```
+
+**Prerequisites:**
+- Enable BigQuery API
+- Enable Cloud Run API
+- Enable Firebase Hosting
+- Enable Maps JavaScript API, Geocoding API, Directions API, Places API
+- Configure service account with BigQuery permissions
+- Set GOOGLE_MAPS_API_KEY in environment
+- Install Firebase CLI: `npm install -g firebase-tools`
+- Install ADK CLI: `pip install google-adk`
 
 ---
 
