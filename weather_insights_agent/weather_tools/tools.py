@@ -140,8 +140,8 @@ def get_census_demographics(
             hispanic_pop,
             bachelors_degree,
             median_rent,
-            owner_occupied,
-            renter_occupied
+            owner_occupied_housing_units,
+            housing_units_renter_occupied
         FROM `bigquery-public-data.census_bureau_acs.censustract_2018_5yr` 
         WHERE SUBSTR(geo_id, 1, 2) = '{state_code}'
         LIMIT 100
@@ -176,8 +176,8 @@ def get_census_demographics(
                 },
                 "housing": {
                     "median_rent": row.median_rent,
-                    "owner_occupied": row.owner_occupied,
-                    "renter_occupied": row.renter_occupied
+                    "owner_occupied": row.owner_occupied_housing_units,
+                    "renter_occupied": row.housing_units_renter_occupied
                 }
             })
             total_population += row.total_pop or 0
