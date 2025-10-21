@@ -9,45 +9,77 @@ The Weather Insights and Forecast Advisor is a production-ready, full-stack mult
 **Core Value Proposition:** Correlate real-time weather forecasts with historical data to identify vulnerable populations and high-risk areas, enabling proactive emergency response and resource allocation.
 
 **Key Features:**
-- 🌐 **Production Deployment:** Live on Firebase Hosting with Cloud Run backend
-- 🎨 **Modern UI:** Interactive React dashboard with real-time weather visualization
-- 🌪️ **Severe Weather Cards:** Active hurricanes, heat waves, and flooding displayed prominently
-- 🔄 **Session Management:** 30-minute session persistence with automatic state cleanup
-- 🤖 **Multi-Agent System:** Specialized agents for location, forecast, data analysis, and insights
-- 📊 **Historical Data:** Access to NOAA weather datasets via BigQuery
-- 🗺️ **Google Maps Integration:** Geocoding, directions, emergency resources, and interactive maps
-- ⚡ **Real-time Forecasts:** National Weather Service API integration with live hurricane tracking
-- 🎯 **Risk Analysis:** Two-tier analysis for simple and complex weather events
-- 🌊 **Hurricane Tracking:** NHC integration with KMZ files and Google Earth visualization
+
+**🌐 Production Deployment:**
+- Live on Firebase Hosting with Cloud Run backend
+- Automated deployment scripts for backend and frontend
+- Environment-based configuration management
+
+**🎨 Modern React UI:**
+- Interactive dashboard with real-time weather visualization
+- Responsive design with Tailwind CSS
+- Cross-page navigation with React Router
+- Leaflet maps integration for geographic visualization
+
+**🌪️ Severe Weather Monitoring:**
+- Active severe weather event cards (hurricanes, heat waves, flooding)
+- Carousel navigation for browsing multiple events (3 per page)
+- Color-coded cards by event type (red/orange for hurricanes, orange/yellow for heat, blue for floods)
+- Severity badges (Extreme, Severe, Moderate, Minor)
+- Real-time updates with refresh capability
+
+**🌊 Hurricane Tracking:**
+- Real-time hurricane data from National Hurricane Center CurrentStorms.json API
+- Current storm position, intensity, wind speed, pressure, and movement
+- KMZ file downloads (forecast cone, track path, warning zones)
+- Google Earth Web integration for visualization
+- Direct links to NHC graphics and advisory pages
+- Historical hurricane path data
+
+**🔄 Session Management:**
+- 30-minute session persistence with automatic state cleanup
+- Smart session reuse (avoids creating new sessions on every query)
+- Manual "Clear All" button in header for fresh start
+- Cross-page synchronization (Dashboard, Chat, Forecast, Risk Analysis, Emergency Resources)
+- Automatic cleanup on session expiration or backend errors
+
+**🤖 Multi-Agent System:**
+- Specialized agents for location services, forecasts, data analysis, and insights
+- Intelligent query routing based on user intent
+- Two-tier risk analysis (simple common-sense vs. data-driven)
+- Proactive execution without confirmation prompts
+
+**📊 Historical Data Analysis:**
+- Access to NOAA weather datasets via BigQuery
+- Census demographic data (elderly populations, vulnerable groups)
+- Historical weather events and flood zones
+- Comparative analysis (current vs. historical worst-case scenarios)
+
+**🗺️ Google Maps Integration:**
+- Geocoding and reverse geocoding
+- Multi-route directions with alternatives
+- Emergency resource search (shelters, hospitals)
+- Interactive map generation with custom markers
+- Evacuation route planning
+
+**⚡ Real-time Weather Data:**
+- National Weather Service API integration
+- Live weather alerts and warnings
+- 7-day forecasts with day/night grouping
+- Hourly forecasts for next 48 hours
+- Current conditions from weather stations
+
+**🎯 Risk Analysis:**
+- Two-tier analysis approach (simple events vs. complex events)
+- Risk scoring algorithms for evacuation priority
+- Vulnerability identification (elderly, low-income, flood-prone areas)
+- Resource allocation recommendations
+- Impact prediction based on historical patterns
 
 ## 🌐 Live Demo
 
 - **Frontend:** https://weather-insights-forecaster.web.app
 - **Backend API:** https://weather-insights-agent-79797180773.us-central1.run.app
-
-## 🆕 Recent Updates
-
-### Hurricane Tracking & Visualization (October 2025)
-- **NHC Integration:** Real-time hurricane data from National Hurricane Center CurrentStorms.json API
-- **KMZ File Support:** Download forecast cone, track path, and warning zone KMZ files
-- **Google Earth Integration:** Direct links to visualize hurricane paths in Google Earth Web
-- **Storm Details:** Current position, intensity, wind speed, pressure, movement direction
-- **Advisory Links:** Direct links to NHC graphics and advisory pages
-
-### Severe Weather Event Cards
-- **Active Events Dashboard:** Displays up to 6 active severe weather events
-- **Event Types:** Hurricanes, tropical storms, heat waves, flood warnings
-- **Carousel Navigation:** Browse through events with left/right arrows (3 per page)
-- **Color-Coded Cards:** Gradient headers based on event type (red/orange for hurricanes, orange/yellow for heat, blue for floods)
-- **Severity Badges:** Extreme, Severe, Moderate, Minor classifications
-- **Real-time Updates:** Automatic refresh of severe weather data
-
-### Session Management & State Persistence
-- **30-Minute Sessions:** Maintains conversation context and state for 30 minutes
-- **Automatic Cleanup:** Clears all data when session expires
-- **Manual Reset:** "Clear All" button in header to start fresh
-- **Cross-Page Sync:** Session expiration clears data across all pages (Dashboard, Chat, Forecast, Risk Analysis, Emergency Resources)
-- **Smart Reuse:** Reuses valid sessions instead of creating new ones on every query
 
 ---
 
