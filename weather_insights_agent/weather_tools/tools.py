@@ -105,6 +105,25 @@ def get_census_demographics(
     """
     try:
         # Query BigQuery census_bureau_acs dataset for city demographics
+        # Map state abbreviations to FIPS codes
+        state_fips = {
+            'AL': '01', 'AK': '02', 'AZ': '04', 'AR': '05', 'CA': '06', 'CO': '08', 'CT': '09',
+            'DE': '10', 'DC': '11', 'FL': '12', 'GA': '13', 'HI': '15', 'ID': '16', 'IL': '17',
+            'IN': '18', 'IA': '19', 'KS': '20', 'KY': '21', 'LA': '22', 'ME': '23', 'MD': '24',
+            'MA': '25', 'MI': '26', 'MN': '27', 'MS': '28', 'MO': '29', 'MT': '30', 'NE': '31',
+            'NV': '32', 'NH': '33', 'NJ': '34', 'NM': '35', 'NY': '36', 'NC': '37', 'ND': '38',
+            'OH': '39', 'OK': '40', 'OR': '41', 'PA': '42', 'RI': '44', 'SC': '45', 'SD': '46',
+            'TN': '47', 'TX': '48', 'UT': '49', 'VT': '50', 'VA': '51', 'WA': '53', 'WV': '54',
+            'WI': '55', 'WY': '56'
+        }
+        
+        state_code = state_fips.get(state.upper())
+        if not state_code:
+            return {
+                "status": "error",
+                "message": f"Invalid state abbreviation: {state}. Please use 2-letter state code (e.g., CA, TX, NY)"
+            }
+        
         query = f"""
         SELECT 
             geo_id,
@@ -124,9 +143,8 @@ def get_census_demographics(
             owner_occupied,
             renter_occupied
         FROM `bigquery-public-data.census_bureau_acs.censustract_2018_5yr` 
-        WHERE state_name = '{state}' 
-        AND LOWER(county_name) LIKE LOWER('%{city}%')
-        LIMIT 10
+        WHERE SUBSTR(geo_id, 1, 2) = '{state_code}'
+        LIMIT 100
         """
         
         logger.info(f"Querying census demographics for {city}, {state}")
