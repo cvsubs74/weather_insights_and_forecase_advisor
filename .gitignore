@@ -35,6 +35,9 @@ htmlcov/
 weather-insights-ui/node_modules/
 weather-insights-ui/build/
 weather-insights-ui/.cache/
+frontend/node_modules/
+frontend/build/
+frontend/.cache/
 
 # Firebase
 .firebase/
@@ -44,5 +47,14 @@ weather-insights-ui/.cache/
 *.tmp
 .DS_Store
 
-# UV lock file
+# UV lock files
 uv.lock
+agents/uv.lock
+agents/*/uv.lock
+
+# Agent pyproject files (keep only main one)
+agents/*/pyproject.toml
+
+# Cursor AI
+.cursor/
+ai_docs/
