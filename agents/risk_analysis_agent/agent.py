@@ -1,41 +1,31 @@
 from typing import List
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import (
-    get_nws_alerts,
-    get_census_demographics,
-    get_census_tracts_in_area,
-    get_flood_risk_data
-)
-
+from shared_tools.tools import get_census_tracts_in_area, get_flood_risk_data, get_nws_alerts, get_census_demographics
+from shared_tools.logging_utils import log_agent_entry, log_agent_exit
 
 class RiskAnalysisSummary(BaseModel):
     """Structured output for risk analysis"""
     alert_summary: str = Field(description="Overview of the weather alert")
     population_at_risk: int = Field(description="Estimated population affected")
-    risk_score: float = Field(description="Risk score from 0-100")
-    risk_level: str = Field(description="Risk level: Low, Medium, High, or Severe")
-    vulnerable_areas: List[str] = Field(description="High-risk zones")
-    recommendations: List[str] = Field(description="Specific action items")
+    risk_score: int = Field(description="Overall risk score (0-100)")
+    risk_level: str = Field(description="Risk level (Low, Medium, High, Severe)")
+    vulnerable_areas: List[str] = Field(description="List of areas with high population and risk")
+    recommendations: List[str] = Field(description="Actionable recommendations for emergency managers")
     evacuation_needed: bool = Field(description="Whether evacuation is recommended")
-    insights: str = Field(description="Detailed risk analysis and guidance")
-
 
 # Phase 1: Alert Retriever
 alert_retriever = LlmAgent(
     model="gemini-2.5-flash",
     name="alert_retriever",
-    description="Retrieves detailed alert information for risk analysis",
+    description="Retrieves active weather alerts for a specified location",
     instruction="""
-    You are an alert data specialist for risk analysis.
+    You are a weather alert data specialist.
     
     **Your Task:**
-    Retrieve the specific alert details for risk assessment.
-    
-    **Process:**
-    1. Parse the location from the user request
-    2. Call get_nws_alerts for the location
-    3. Extract the specific alert details:
+    1. Get the active weather alert for the user-provided location.
+    2. Use the `get_nws_alerts` tool.
+    3. Extract key details:
        - Alert type and severity
        - Affected zones
        - Alert description
@@ -46,8 +36,9 @@ alert_retriever = LlmAgent(
     """,
     tools=[get_nws_alerts],
     output_key="alert_data",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 2: Census Data Retriever
 census_data_retriever = LlmAgent(
@@ -58,17 +49,10 @@ census_data_retriever = LlmAgent(
     You are a demographic data specialist.
     
     **Your Task:**
-    Retrieve population and flood zone data for the affected areas.
-    
-    **Process:**
-    1. Extract affected zones/locations from state["alert_data"]
-    2. For each affected city/county, use get_census_demographics:
-       - Extract city and state from alert zones
-       - Get population, median age, household data
-    3. Use get_census_tracts_in_area to get detailed tract-level data:
-       - state: extracted from alert
-       - county: extracted from alert (optional)
-    4. If flood-related alert, use get_flood_risk_data:
+    1. Get the affected areas from `state['alert_data']`.
+    2. For each area, use `get_census_demographics` to get population data.
+    3. Use `get_census_tracts_in_area` to identify specific census tracts.
+    4. If flood-related alert, use `get_flood_risk_data`:
        - state: from alert
        - county: from alert (optional)
     5. Calculate total population at risk by summing all affected areas
@@ -78,8 +62,9 @@ census_data_retriever = LlmAgent(
     """,
     tools=[get_census_demographics, get_census_tracts_in_area, get_flood_risk_data],
     output_key="census_data",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 3: Risk Calculator
 risk_calculator = LlmAgent(
@@ -90,28 +75,14 @@ risk_calculator = LlmAgent(
     You are a risk assessment specialist.
     
     **Your Task:**
-    Calculate risk scores by combining alert severity with population data.
-    
-    **Process:**
-    1. Extract alert severity from state["alert_data"]
-    2. Extract population data from state["census_data"]
-    3. Calculate risk score (0-100):
-       - Severity weight: 40%
-         * Extreme: 100 points
-         * Severe: 75 points
-         * Moderate: 50 points
-         * Minor: 25 points
-       - Population weight: 30%
-         * >100k: 100 points
-         * 50k-100k: 75 points
-         * 10k-50k: 50 points
-         * <10k: 25 points
-       - Flood zone weight: 30%
-         * High flood risk: 100 points
-         * Moderate: 50 points
-         * Low: 25 points
-    
-    4. Determine risk level:
+    1. Get alert severity from `state['alert_data']`.
+    2. Get population data from `state['census_data']`.
+    3. Get flood risk if available from `state['census_data']`.
+    4. Calculate a risk score (0-100) based on:
+       - Severity (Minor=10, Moderate=40, Severe=70, Extreme=90)
+       - Population density (higher density = higher score)
+       - Flood risk (if present, adds to score)
+       - Assign a risk level based on the score:
        - 0-25: Low
        - 26-50: Medium
        - 51-75: High
@@ -122,8 +93,9 @@ risk_calculator = LlmAgent(
     Store risk scores for the recommendation generator.
     """,
     output_key="risk_scores",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 4: Risk Recommendations Generator
 recommendations_generator = LlmAgent(
@@ -137,11 +109,11 @@ recommendations_generator = LlmAgent(
     Generate a comprehensive risk analysis summary with actionable recommendations.
     
     **Process:**
-    1. Extract alert summary from state["alert_summary"]
-    2. Extract population data from state["population_data"]
-    3. Extract risk assessment from state["risk_assessment"]
+    1. Extract alert summary from state["alert_data"]
+    2. Extract population data from state["census_data"]
+    3. Extract risk assessment from state["risk_scores"]
     4. Calculate overall risk score (0-100)
-    5. Determine risk level (Low/Medium/High/Severe)
+    5. Determine risk level (low/Medium/High/Severe)
     6. Identify vulnerable areas
     7. Generate specific recommendations:
        - Immediate actions
@@ -156,10 +128,12 @@ recommendations_generator = LlmAgent(
     """,
     output_schema=RiskAnalysisSummary,
     output_key="risk_analysis_summary",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
 
 
-# Sequential Pipeline: Alert → Census → Risk → Recommendations
+# Sequential Pipeline: Alert -> Census -> Risk -> Recommendations
 risk_analysis_workflow = SequentialAgent(
     name="risk_analysis_pipeline",
     description="Analyzes weather alert risks by combining alert severity, population data, and flood zones to generate actionable safety recommendations",
@@ -170,6 +144,4 @@ risk_analysis_workflow = SequentialAgent(
         recommendations_generator,
     ],
 )
-
-# ADK export pattern
 root_agent = risk_analysis_workflow

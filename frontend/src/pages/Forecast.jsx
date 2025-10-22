@@ -1,18 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { MagnifyingGlassIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, ArrowPathIcon, SunIcon, CloudIcon, BoltIcon, CloudArrowDownIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline';
 import api from '../services/api';
+
+const WeatherIcon = ({ conditions, className }) => {
+  const normalizedConditions = conditions.toLowerCase();
+  if (normalizedConditions.includes('sunny') || normalizedConditions.includes('clear')) {
+    return <SunIcon className={className} />;
+  }
+  if (normalizedConditions.includes('cloud')) {
+    return <CloudIcon className={className} />;
+  }
+  if (normalizedConditions.includes('rain') || normalizedConditions.includes('drizzle')) {
+    return <CloudArrowDownIcon className={className} />;
+  }
+  if (normalizedConditions.includes('thunder') || normalizedConditions.includes('storm')) {
+    return <BoltIcon className={className} />;
+  }
+  return <QuestionMarkCircleIcon className={className} />;
+};
 
 const Forecast = () => {
   const [location, setLocation] = useState(() => {
     return localStorage.getItem('forecastLocation') || '';
   });
-  const [agentResponse, setAgentResponse] = useState(() => {
-    return localStorage.getItem('forecastResponse') || '';
+  const [forecastData, setForecastData] = useState(() => {
+    const saved = localStorage.getItem('forecastData');
+    return saved ? JSON.parse(saved) : null;
   });
   const [loading, setLoading] = useState(false);
 
-  // Save to localStorage whenever location or response changes
+  // Save to localStorage whenever location or forecast data changes
   useEffect(() => {
     if (location) {
       localStorage.setItem('forecastLocation', location);
@@ -22,21 +39,21 @@ const Forecast = () => {
   }, [location]);
 
   useEffect(() => {
-    if (agentResponse) {
-      localStorage.setItem('forecastResponse', agentResponse);
+    if (forecastData) {
+      localStorage.setItem('forecastData', JSON.stringify(forecastData));
     } else {
-      localStorage.removeItem('forecastResponse');
+      localStorage.removeItem('forecastData');
     }
-  }, [agentResponse]);
+  }, [forecastData]);
 
   // Listen for session expiration events
   useEffect(() => {
     const handleSessionExpired = () => {
       console.log('[Forecast] Session expired, clearing state');
       setLocation('');
-      setAgentResponse('');
+      setForecastData(null);
       localStorage.removeItem('forecastLocation');
-      localStorage.removeItem('forecastResponse');
+      localStorage.removeItem('forecastData');
     };
     
     window.addEventListener('sessionExpired', handleSessionExpired);
@@ -51,15 +68,20 @@ const Forecast = () => {
     if (!location.trim()) return;
 
     setLoading(true);
-    setAgentResponse(''); // Clear previous results immediately
+    setForecastData(null); // Clear previous results immediately
     try {
       const response = await api.getForecast(location);
+
       if (response && response.content) {
-        setAgentResponse(response.content);
+        // The backend sends a JSON string, so we parse it.
+        const data = JSON.parse(response.content);
+        setForecastData(data);
+      } else {
+        console.log('API response was empty or had no content.');
       }
     } catch (error) {
-      console.error('Failed to load forecast:', error);
-      setAgentResponse('Failed to load forecast. Please try again.');
+      console.error('A detailed error occurred while fetching the forecast:', error);
+      setForecastData({ error: 'Failed to load or parse forecast. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -67,9 +89,9 @@ const Forecast = () => {
 
   const handleClear = () => {
     setLocation('');
-    setAgentResponse('');
+    setForecastData(null);
     localStorage.removeItem('forecastLocation');
-    localStorage.removeItem('forecastResponse');
+    localStorage.removeItem('forecastData');
   };
 
   return (
@@ -109,41 +131,64 @@ const Forecast = () => {
         </div>
       )}
 
-      {agentResponse && !loading && (
-        <>
-          {/* Agent Response */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-gray-900">Weather Forecast for {location}</h3>
-              <button
-                onClick={handleClear}
-                className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                <ArrowPathIcon className="h-4 w-4" />
-                <span>Clear</span>
-              </button>
+      {forecastData && !loading && (
+        <div className="space-y-6">
+          {/* Error Display */}
+          {forecastData.error && (
+            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow-md">
+              <p className="font-bold">Error</p>
+              <p>{forecastData.error}</p>
             </div>
-            <div className="space-y-4">
-              <ReactMarkdown
-                components={{
-                  h1: ({node, children, ...props}) => <h1 className="text-xl font-bold text-gray-900 mb-3" {...props}>{children}</h1>,
-                  h2: ({node, children, ...props}) => <h2 className="text-lg font-semibold text-gray-800 mb-2 mt-4" {...props}>{children}</h2>,
-                  h3: ({node, children, ...props}) => <h3 className="text-md font-semibold text-gray-700 mb-2 mt-3" {...props}>{children}</h3>,
-                  p: ({node, ...props}) => <p className="text-gray-700 mb-3 leading-relaxed" {...props} />,
-                  ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2" {...props} />,
-                  li: ({node, ...props}) => <li className="text-gray-700" {...props} />,
-                  strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
-                  hr: ({node, ...props}) => <hr className="my-6 border-gray-300" {...props} />,
-                }}
-              >
-                {agentResponse}
-              </ReactMarkdown>
-            </div>
-          </div>
-        </>
+          )}
+
+          {/* Main Forecast Display */}
+          {!forecastData.error && (
+            <>
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-2xl font-bold text-gray-900">Weather Forecast for {forecastData.location}</h3>
+                  <button
+                    onClick={handleClear}
+                    className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    <ArrowPathIcon className="h-4 w-4" />
+                    <span>New Search</span>
+                  </button>
+                </div>
+
+                {/* Current Conditions */}
+                <div className="mb-6">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-2">Current Conditions</h4>
+                  <p className="text-gray-700">{forecastData.current_conditions}</p>
+                </div>
+
+                {/* 7-Day Forecast */}
+                <div className="mb-6">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-3">7-Day Forecast</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-center">
+                    {forecastData.daily_forecasts?.map((day) => (
+                      <div key={day.date} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <p className="font-bold text-gray-800">{day.day.substring(0, 3)}</p>
+                        <WeatherIcon conditions={day.conditions} className="h-10 w-10 mx-auto my-2 text-primary" />
+                        <p className="font-semibold text-gray-900">{day.high_temp}°</p>
+                        <p className="text-sm text-gray-500">{day.low_temp}°</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Insights */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-800 mb-2">Planning Insights</h4>
+                  <p className="text-gray-700 leading-relaxed">{forecastData.insights}</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
-      {!agentResponse && !loading && (
+      {!forecastData && !loading && (
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
           <div className="text-gray-400 mb-4">
             <svg className="h-24 w-24 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">

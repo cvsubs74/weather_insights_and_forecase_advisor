@@ -1,65 +1,50 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import (
-    geocode_address as geocode_location,
-    search_nearby_places,
-    get_directions,
-    get_census_demographics,
-    get_census_tracts_in_area
-)
-
+from shared_tools.tools import geocode_address, search_nearby_places, get_directions
+from shared_tools.logging_utils import log_agent_entry, log_agent_exit
 
 class Facility(BaseModel):
     """Emergency facility details"""
     name: str = Field(description="Facility name")
     address: str = Field(description="Full address")
     distance: float = Field(description="Distance in miles")
-    capacity: int = Field(description="Capacity or beds available")
-    phone: str = Field(description="Contact phone number")
-    coordinates: Dict[str, float] = Field(description="Lat/lng coordinates")
+    phone: Optional[str] = Field(description="Phone number")
 
-
-class Route(BaseModel):
+class EvacuationRoute(BaseModel):
     """Evacuation route details"""
-    name: str = Field(description="Route name")
-    description: str = Field(description="Route description")
-    distance: float = Field(description="Distance in miles")
-    estimated_time: str = Field(description="Estimated travel time")
-    waypoints: List[Dict[str, float]] = Field(description="Route waypoints")
-
+    destination: str = Field(description="Destination address")
+    distance: str = Field(description="Total distance")
+    duration: str = Field(description="Estimated travel time")
+    summary: str = Field(description="Route summary (e.g., I-10 E and I-75 S)")
 
 class EmergencyResourcesSummary(BaseModel):
     """Structured output for emergency resources"""
-    location: str = Field(description="Search location")
-    shelters: List[Facility] = Field(description="Emergency shelters")
-    hospitals: List[Facility] = Field(description="Nearby hospitals")
-    evacuation_routes: List[Route] = Field(description="Recommended evacuation routes")
-    insights: str = Field(description="Resource recommendations and guidance")
-
+    hospitals: List[Facility] = Field(description="List of nearby hospitals")
+    shelters: List[Facility] = Field(description="List of nearby emergency shelters")
+    evacuation_routes: List[EvacuationRoute] = Field(description="Recommended evacuation routes")
+    insights: str = Field(description="Summary and safety recommendations")
 
 # Phase 1: Location Parser
 location_parser = LlmAgent(
     model="gemini-2.5-flash",
     name="location_parser",
-    description="Parses and geocodes the search location",
+    description="Parses location from user query and geocodes it",
     instruction="""
-    You are a location parsing specialist.
+    You are a location specialist.
     
     **Your Task:**
-    Parse the location input and convert to coordinates.
-    
-    **Process:**
     1. Extract location from user request
-    2. Call geocode_location(location) to get coordinates
+    2. Call geocode_address(location) to get coordinates
     3. Store location name and coordinates for resource finder
     
     Pass the location data to the resource finder.
     """,
-    tools=[geocode_location],
+    tools=[geocode_address],
     output_key="location_data",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 2: Resource Finder
 resource_finder = LlmAgent(
@@ -70,31 +55,31 @@ resource_finder = LlmAgent(
     You are an emergency resource locator.
     
     **Your Task:**
-    Find shelters and hospitals near the specified location.
+    Find emergency shelters and hospitals near the location provided in `state['location_data']`.
     
     **Process:**
-    1. Extract location and coordinates from state["location_data"]
-    2. Check if user provided a search radius in the original query
-       - If radius is specified, use that value
-       - Otherwise, default to 50 miles
-    3. Use search_nearby_places to find shelters:
-       - location: from state["location_data"]["formatted_address"]
-       - place_type: "shelter" or "emergency_shelter"
+    1. Extract coordinates from state["location_data"]
+    2. Call search_nearby_places for shelters:
+       - latitude: from state
+       - longitude: from state
+       - place_type: "emergency shelter"
        - radius: user-specified or 50 (miles)
-    4. Use search_nearby_places to find hospitals:
-       - location: from state["location_data"]["formatted_address"]
+    3. Call search_nearby_places for hospitals:
+       - latitude: from state
+       - longitude: from state
        - place_type: "hospital"
        - radius: user-specified or 50 (miles)
-    5. Extract facility details (name, address, distance, phone, coordinates)
-    6. Sort by distance (closest first)
-    7. Store facilities data for formatter
+    4. Extract facility details (name, address, distance, phone, coordinates)
+    5. Sort by distance (closest first)
+    6. Store facilities data for formatter
     
     Pass the facilities data to the route calculator.
     """,
     tools=[search_nearby_places],
     output_key="facilities",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 3: Route Calculator
 route_calculator = LlmAgent(
@@ -105,7 +90,7 @@ route_calculator = LlmAgent(
     You are an evacuation route specialist.
     
     **Your Task:**
-    Identify and calculate evacuation routes from the location.
+    Calculate evacuation routes from the user's location to the nearest safe facilities.
     
     **Process:**
     1. Extract origin location from state["location_data"]["formatted_address"]
@@ -116,7 +101,7 @@ route_calculator = LlmAgent(
        - alternatives: true (to get multiple route options)
     4. Extract route details from each direction:
        - Distance (miles)
-       - Estimated travel time
+       - estimated travel time
        - Route description
        - Key waypoints
     5. Prioritize routes by distance and time
@@ -126,8 +111,9 @@ route_calculator = LlmAgent(
     """,
     tools=[get_directions],
     output_key="routes",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
-
 
 # Phase 4: Resource Formatter
 resource_formatter = LlmAgent(
@@ -138,20 +124,13 @@ resource_formatter = LlmAgent(
     You are an emergency resources presentation specialist.
     
     **Your Task:**
-    Format all resource data into a structured, user-friendly output.
+    Generate a comprehensive summary of emergency resources with actionable recommendations.
     
     **Process:**
-    1. Extract location from state["location_data"]
-    2. Format shelters from state["facilities"]:
-       - Sort by distance
-       - Include name, address, capacity, phone, coordinates
-    3. Format hospitals from state["facilities"]:
-       - Sort by distance
-       - Include name, address, beds, phone, coordinates
-    4. Format evacuation routes from state["routes"]:
-       - Sort by distance/time
-       - Include route name, description, distance, time, waypoints
-    5. Generate insights and recommendations:
+    1. Extract hospitals from state["facilities"]
+    2. Extract shelters from state["facilities"]
+    3. Extract evacuation routes from state["routes"]
+    4. Generate insights and recommendations:
        - Nearest shelter location
        - Hospital availability
        - Best evacuation route
@@ -162,10 +141,11 @@ resource_formatter = LlmAgent(
     """,
     output_schema=EmergencyResourcesSummary,
     output_key="resources_summary",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
 
-
-# Sequential Pipeline: Location → Resources → Routes → Format
+# Sequential Pipeline: Location -> Resources -> Routes -> Format
 emergency_resources_workflow = SequentialAgent(
     name="emergency_resources_pipeline",
     description="Finds emergency shelters, hospitals, and evacuation routes near a location with distance-sorted recommendations",

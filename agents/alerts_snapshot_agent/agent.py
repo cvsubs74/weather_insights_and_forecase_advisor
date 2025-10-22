@@ -2,6 +2,7 @@ from typing import List
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
 from shared_tools.tools import get_nws_alerts
+from shared_tools.logging_utils import log_agent_entry, log_agent_exit
 
 class AlertDetail(BaseModel):
     """Individual weather alert details"""
@@ -58,6 +59,8 @@ retriever_agent = LlmAgent(
     """,
     tools=[get_nws_alerts],
     output_key="alerts_data",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
 
 
@@ -93,6 +96,8 @@ alerts_formatter = LlmAgent(
     """,
     output_schema=AlertsSummary,
     output_key="alerts_summary",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
 )
 
 

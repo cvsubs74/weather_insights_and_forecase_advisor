@@ -337,11 +337,12 @@ class WeatherAgentAPI {
       // Parse ADK response
       const data = response.data;
       let forecastSummary = null;
+      let text = ''; // Declare text here
       
       if (Array.isArray(data) && data.length > 0) {
         // Get the final step (formatter output)
         const finalStep = data[data.length - 1];
-        const text = finalStep?.content?.parts?.[0]?.text;
+        text = finalStep?.content?.parts?.[0]?.text; // Assign to existing variable
         
         if (text) {
           try {
@@ -357,16 +358,13 @@ class WeatherAgentAPI {
       this.updateSessionTimestamp();
 
       return {
-        content: forecastSummary?.insights || '',
-        location: forecastSummary?.location || location,
-        coordinates: forecastSummary?.coordinates || {},
-        current_conditions: forecastSummary?.current_conditions || '',
-        daily_forecasts: forecastSummary?.daily_forecasts || [],
+        content: text, // Return the raw JSON string
         session_id: sessionId,
       };
     } catch (error) {
       console.error('[API] Error getting forecast:', error);
-      throw new Error(error.response?.data?.message || error.message || 'Failed to get forecast');
+      // Re-throw the original error to preserve details
+      throw error;
     }
   }
 
@@ -414,7 +412,6 @@ class WeatherAgentAPI {
         }
       }
 
-      // Update session timestamp
       this.updateSessionTimestamp();
 
       return {
@@ -676,22 +673,7 @@ class WeatherAgentAPI {
     try {
       console.log('[API] Getting suggested actions...');
       
-      const prompt = `Based on this conversation:
-User: ${lastUserQuery}
-Assistant: ${lastAgentResponse.substring(0, 500)}...
-
-Generate exactly 4 contextual follow-up questions the user might want to ask next. 
-- Make them specific and actionable
-- Include the same location/context from the conversation
-- Format as a simple list, one per line
-- No numbering, bullets, or extra text
-- Each should be a complete, ready-to-send question
-
-Example format:
-Show me the hourly forecast for Miami
-Are there any weather alerts in Miami?
-Find emergency shelters near Miami
-What's the extended forecast for Miami?`;
+      const prompt = `Based on this conversation:\nUser: ${lastUserQuery}\nAssistant: ${lastAgentResponse.substring(0, 500)}...\n\nGenerate exactly 4 contextual follow-up questions the user might want to ask next. \n- Make them specific and actionable\n- Include the same location/context from the conversation\n- Format as a simple list, one per line\n- No numbering, bullets, or extra text\n- Each should be a complete, ready-to-send question\n\nExample format:\nShow me the hourly forecast for Miami\nAre there any weather alerts in Miami?\nFind emergency shelters near Miami\nWhat's the extended forecast for Miami?`;
 
       const response = await this.query(prompt);
       

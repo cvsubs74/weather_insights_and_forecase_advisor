@@ -1,34 +1,53 @@
 # Weather Insights Multi-Agent System Makefile
 
+# Set PYTHONPATH to the current directory so ADK can find the agent modules
+
+
 alerts-snapshot:
-	uv run adk api_server alerts_snapshot_agent --allow_origins="*" --port=8081
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server alerts_snapshot_agent --allow_origins="*" --port=8081 --log_level=debug >> alerts_snapshot_agent.log 2>&1
 
 alerts-snapshot-dev:
-	uv run adk web alerts_snapshot_agent
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web alerts_snapshot_agent
 
 forecast-agent:
-	uv run adk api_server forecast_agent --allow_origins="*" --port=8082
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server forecast_agent --allow_origins="*" --port=8082 --log_level=debug >> forecast_agent.log 2>&1
 
 forecast-agent-dev:
-	uv run adk web forecast_agent
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web forecast_agent
 
 risk-analysis:
-	uv run adk api_server risk_analysis_agent --allow_origins="*" --port=8083
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server risk_analysis_agent --allow_origins="*" --port=8083 >> risk_analysis_agent.log 2>&1
 
 risk-analysis-dev:
-	uv run adk web risk_analysis_agent
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web risk_analysis_agent
 
 emergency-resources:
-	uv run adk api_server emergency_resources_agent --allow_origins="*" --port=8084
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server emergency_resources_agent --allow_origins="*" --port=8084 >> emergency_resources_agent.log 2>&1
 
 emergency-resources-dev:
-	uv run adk web emergency_resources_agent
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web emergency_resources_agent
 
 chat-agent:
-	uv run adk api_server chat --allow_origins="*" --port=8090
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server chat --allow_origins="*" --port=8090 >> chat_agent.log 2>&1
 
 chat-agent-dev:
-	uv run adk web chat
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web chat
+
+log-analyzer:
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server log_analyzer_agent --allow_origins="*" --port=8091 >> log_analyzer_agent.log 2>&1
+
+log-analyzer-dev:
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web log_analyzer_agent
 
 agents:
-	make alerts-snapshot & make forecast-agent & make risk-analysis & make emergency-resources & make chat-agent
+	@echo "Starting all agents in the background..."
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server alerts_snapshot_agent --allow_origins="*" --port=8081 >> alerts_snapshot_agent.log 2>&1 &
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server forecast_agent --allow_origins="*" --port=8082 >> forecast_agent.log 2>&1 &
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server risk_analysis_agent --allow_origins="*" --port=8083 >> risk_analysis_agent.log 2>&1 &
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server emergency_resources_agent --allow_origins="*" --port=8084 >> emergency_resources_agent.log 2>&1 &
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server chat --allow_origins="*" --port=8090 >> chat_agent.log 2>&1 &
+	@echo "All agents are starting. Check the .log files for output."
+
+.PHONY: clean-logs
+clean-logs:
+	rm -f *.log
