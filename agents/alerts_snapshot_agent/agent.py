@@ -83,7 +83,7 @@ alerts_formatter = LlmAgent(
        - Event type (e.g., "Tornado Warning")
        - Severity level
        - Headline
-       - Description
+       - Description - Summarize the alert description retaining key information
        - Affected zones
        - Start and end times
     5. Generate insights about the overall alert situation

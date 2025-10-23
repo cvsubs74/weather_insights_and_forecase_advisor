@@ -19,7 +19,6 @@ const Layout = ({ children }) => {
     { name: 'Dashboard', href: '/', icon: HomeIcon },
     { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
     { name: 'Forecast', href: '/forecast', icon: CloudIcon },
-    { name: 'Risk Analysis', href: '/risk-analysis', icon: ChartBarIcon },
     { name: 'Emergency Resources', href: '/emergency-resources', icon: MapPinIcon },
   ];
 

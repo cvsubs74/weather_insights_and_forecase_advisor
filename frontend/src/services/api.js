@@ -530,9 +530,9 @@ class WeatherAgentAPI {
     }
   }
 
-  async analyzeRisk(event, location) {
+  async analyzeRisk(alert) {
     try {
-      console.log('[API] Analyzing risk for:', event, 'in', location);
+      console.log('[API] Analyzing risk for alert:', alert.event);
       
       // Create session first
       const sessionResponse = await this.clients.risk.post('/apps/risk_analysis_agent/users/user_001/sessions', {
@@ -541,6 +541,9 @@ class WeatherAgentAPI {
       const sessionId = sessionResponse.data.id;
       console.log('[API] Created risk session:', sessionId);
       
+      // The agent expects a JSON string as input
+      const alertJson = JSON.stringify(alert);
+
       // Call risk analysis agent
       const response = await this.clients.risk.post('/run', {
         app_name: 'risk_analysis_agent',
@@ -548,7 +551,7 @@ class WeatherAgentAPI {
         session_id: sessionId,
         new_message: {
           role: 'user',
-          parts: [{ text: `Analyze risk for ${event} in ${location}` }],
+          parts: [{ text: alertJson }],
         },
         streaming: false,
       });
@@ -575,17 +578,9 @@ class WeatherAgentAPI {
 
       this.updateSessionTimestamp();
 
-      return {
-        content: riskSummary?.insights || '',
-        alert_summary: riskSummary?.alert_summary || '',
-        population_at_risk: riskSummary?.population_at_risk || 0,
-        risk_score: riskSummary?.risk_score || 0,
-        risk_level: riskSummary?.risk_level || 'Unknown',
-        vulnerable_areas: riskSummary?.vulnerable_areas || [],
-        recommendations: riskSummary?.recommendations || [],
-        evacuation_needed: riskSummary?.evacuation_needed || false,
-        session_id: sessionId,
-      };
+      // The agent now directly returns the RiskAnalysisSummary object.
+      // We just need to ensure the frontend receives it correctly.
+      return riskSummary;
     } catch (error) {
       console.error('[API] Error analyzing risk:', error);
       throw new Error(error.response?.data?.message || error.message || 'Failed to analyze risk');

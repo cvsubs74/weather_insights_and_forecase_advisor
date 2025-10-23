@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
 import LocationMap from '../components/LocationMap';
+import RiskAnalysisModal from '../components/RiskAnalysisModal';
 import SevereWeatherCard from '../components/SevereWeatherCard';
 import api from '../services/api';
 import { 
@@ -17,16 +17,11 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Dashboard = () => {
-  const [alerts, setAlerts] = useState([]);
+  const [alerts, setAlerts] = useState(() => {
+    const saved = localStorage.getItem('dashboardAlerts');
+    return saved ? JSON.parse(saved) : [];
+  });
   
-  // Helper function to get severity emoji
-  const getSeverityEmoji = (severity) => {
-    const severityLower = severity?.toLowerCase() || '';
-    if (severityLower.includes('severe') || severityLower.includes('extreme')) return '🔴';
-    if (severityLower.includes('moderate')) return '🟡';
-    if (severityLower.includes('minor')) return '🟢';
-    return '⚠️';
-  };
   const [agentResponse, setAgentResponse] = useState(() => {
     return localStorage.getItem('dashboardResponse') || '';
   });
@@ -53,6 +48,12 @@ const Dashboard = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const eventsPerPage = 3;
 
+  // State for Risk Analysis Modal
+  const [isRiskModalOpen, setIsRiskModalOpen] = useState(false);
+  const [selectedAlertForAnalysis, setSelectedAlertForAnalysis] = useState(null);
+  const [riskAnalysis, setRiskAnalysis] = useState(null);
+  const [isAnalyzingRisk, setIsAnalyzingRisk] = useState(false);
+
   // Save to localStorage whenever state changes
   useEffect(() => {
     if (agentResponse) localStorage.setItem('dashboardResponse', agentResponse);
@@ -77,6 +78,10 @@ const Dashboard = () => {
   useEffect(() => {
     if (severeEvents.length > 0) localStorage.setItem('dashboardSevereEvents', JSON.stringify(severeEvents));
   }, [severeEvents]);
+
+  useEffect(() => {
+    if (alerts.length > 0) localStorage.setItem('dashboardAlerts', JSON.stringify(alerts));
+  }, [alerts]);
 
   useEffect(() => {
     // Don't auto-load alerts on mount - wait for user selection
@@ -109,58 +114,41 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadAlerts = async () => {
-    if (loading) return; // Prevent duplicate calls
-    
-    setLoading(true);
+  const handleAnalyzeRisk = async (alert) => {
+    setSelectedAlertForAnalysis(alert);
+    setIsRiskModalOpen(true);
+    setIsAnalyzingRisk(true);
+    setRiskAnalysis(null); // Clear previous analysis
     try {
-      const response = await api.getAlerts(location);
-      
-      // Check if we have structured alerts from JSON
-      if (response && response.alerts && Array.isArray(response.alerts) && response.alerts.length > 0) {
-        console.log('[Dashboard] Using structured alerts from JSON:', response.alerts);
-        
-        // Create a user-friendly formatted text response
-        const alertCount = response.alerts.length;
-        const formattedText = `# 🚨 Active Weather Alerts for ${location}\n\n` +
-          `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-          response.alerts.map((alert, index) => 
-            `### ${index + 1}. ${alert.event}\n\n` +
-            `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-            `**Details:** ${alert.headline}\n\n---`
-          ).join('\n\n');
-        
-        setAgentResponse(formattedText);
+      const response = await api.analyzeRisk(alert);
+      setRiskAnalysis(response);
+    } catch (error) {
+      console.error('Failed to analyze risk:', error);
+      setRiskAnalysis({ error: 'Failed to analyze risk. Please try again.' }); // Set an error state
+    } finally {
+      setIsAnalyzingRisk(false);
+    }
+  };
+
+  const loadAlerts = async (currentLocation) => {
+    if (loading) return;
+    setLoading(true);
+    setAlerts([]);
+    setAgentResponse('');
+    try {
+      const response = await api.getAlerts(currentLocation);
+      if (response && response.alerts && Array.isArray(response.alerts)) {
         setAlerts(response.alerts);
-        parseAlertLocations(formattedText, location);
-      } else if (response && response.content) {
-        // Fallback: Try to parse JSON from content
-        try {
-          const jsonMatch = response.content.match(/\{[\s\S]*"alerts"[\s\S]*\}/);
-          if (jsonMatch) {
-            const jsonData = JSON.parse(jsonMatch[0]);
-            if (jsonData.alerts && Array.isArray(jsonData.alerts)) {
-              const alertCount = jsonData.alerts.length;
-              const formattedText = `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-                jsonData.alerts.map((alert, index) => 
-                  `### ${index + 1}. ${alert.event}\n\n` +
-                  `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-                  `**Details:** ${alert.headline}\n\n---`
-                ).join('\n\n');
-              
-              setAgentResponse(formattedText);
-              setAlerts(jsonData.alerts);
-              parseAlertLocations(formattedText, location);
-              return;
-            }
-          }
-        } catch (e) {
-          console.error('[Dashboard] Failed to parse JSON from content:', e);
+        if (response.alerts.length > 0) {
+          setAgentResponse(`Found ${response.alerts.length} alerts for ${currentLocation}.`);
+          parseAlertLocations(response.alerts.map(a => a.headline).join(' '), currentLocation);
+        } else {
+          setAgentResponse(`No active alerts found for ${currentLocation}.`);
+          parseAlertLocations('', currentLocation);
         }
-        
-        // If no JSON found, use raw content
-        setAgentResponse(response.content);
-        parseAlertLocations(response.content, location);
+      } else {
+        setAgentResponse(response?.content || `No active alerts found for ${currentLocation}.`);
+        parseAlertLocations(response?.content || '', currentLocation);
       }
     } catch (error) {
       console.error('Failed to load alerts:', error);
@@ -403,153 +391,22 @@ const Dashboard = () => {
     }
   };
 
-  const handleFilterChange = async (filterType, value) => {
-    console.log('[Dashboard] Filter changed:', filterType, value);
-    
-    // Prevent duplicate calls
-    if (loading) {
-      console.log('[Dashboard] Already loading, skipping duplicate call');
-      return;
-    }
-    
-    // Find the display name for the region or state
+  const handleFilterChange = (filterType, value) => {
     let displayName = value;
     if (filterType === 'region') {
       const region = regions.find(r => r.value === value);
       displayName = region?.displayName || value;
     }
-    // For states, displayName is already the state name
-    
     setSelectedFilter(filterType);
     setLocation(displayName);
-    
-    // Immediately load alerts with the new location
-    setLoading(true);
-    try {
-      const response = await api.getAlerts(value);
-      
-      // Check if we have structured alerts from JSON
-      if (response && response.alerts && Array.isArray(response.alerts) && response.alerts.length > 0) {
-        console.log('[Dashboard] Using structured alerts from JSON:', response.alerts);
-        
-        // Create a user-friendly formatted text response
-        const alertCount = response.alerts.length;
-        const formattedText = `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-          response.alerts.map((alert, index) => 
-            `### ${index + 1}. ${alert.event}\n\n` +
-            `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-            `**Details:** ${alert.headline}\n\n---`
-          ).join('\n\n');
-        
-        setAgentResponse(formattedText);
-        setAlerts(response.alerts);
-        parseAlertLocations(formattedText, displayName);
-      } else if (response && response.content) {
-        // Fallback: Try to parse JSON from content
-        try {
-          const jsonMatch = response.content.match(/\{[\s\S]*"alerts"[\s\S]*\}/);
-          if (jsonMatch) {
-            const jsonData = JSON.parse(jsonMatch[0]);
-            if (jsonData.alerts && Array.isArray(jsonData.alerts)) {
-              const alertCount = jsonData.alerts.length;
-              const formattedText = `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-                jsonData.alerts.map((alert, index) => 
-                  `### ${index + 1}. ${alert.event}\n\n` +
-                  `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-                  `**Details:** ${alert.headline}\n\n---`
-                ).join('\n\n');
-              
-              setAgentResponse(formattedText);
-              setAlerts(jsonData.alerts);
-              parseAlertLocations(formattedText, displayName);
-              return;
-            }
-          }
-        } catch (e) {
-          console.error('[Dashboard] Failed to parse JSON from content:', e);
-        }
-        
-        // If no JSON found, use raw content
-        setAgentResponse(response.content);
-        parseAlertLocations(response.content, displayName);
-      }
-    } catch (error) {
-      console.error('[Dashboard] Failed to load alerts:', error);
-      setAgentResponse('Failed to load alerts. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    loadAlerts(displayName);
   };
 
-  const handleCustomSearch = async (e) => {
+  const handleCustomSearch = (e) => {
     e.preventDefault();
-    
-    // Prevent duplicate calls
-    if (loading) {
-      console.log('[Dashboard] Already loading, skipping duplicate call');
-      return;
-    }
-    
     if (location.trim()) {
       setSelectedFilter('custom');
-      
-      // Call API directly with current location value
-      setLoading(true);
-      try {
-        const response = await api.getAlerts(location);
-        
-        // Check if we have structured alerts from JSON
-        if (response && response.alerts && Array.isArray(response.alerts) && response.alerts.length > 0) {
-          console.log('[Dashboard] Using structured alerts from JSON:', response.alerts);
-          
-          // Create a user-friendly formatted text response
-          const alertCount = response.alerts.length;
-          const formattedText = `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-            response.alerts.map((alert, index) => 
-              `### ${index + 1}. ${alert.event}\n\n` +
-              `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-              `**Details:** ${alert.headline}\n\n---`
-            ).join('\n\n');
-          
-          setAgentResponse(formattedText);
-          setAlerts(response.alerts);
-          parseAlertLocations(formattedText, location);
-        } else if (response && response.content) {
-          // Fallback: Try to parse JSON from content
-          try {
-            const jsonMatch = response.content.match(/\{[\s\S]*"alerts"[\s\S]*\}/);
-            if (jsonMatch) {
-              const jsonData = JSON.parse(jsonMatch[0]);
-              if (jsonData.alerts && Array.isArray(jsonData.alerts)) {
-                const alertCount = jsonData.alerts.length;
-                const formattedText = `# 🚨 Active Weather Alerts for ${location}\n\n` +
-                  `Found **${alertCount}** active alert${alertCount !== 1 ? 's' : ''}:\n\n---\n\n` +
-                  jsonData.alerts.map((alert, index) => 
-                    `### ${index + 1}. ${alert.event}\n\n` +
-                    `**Severity:** ${getSeverityEmoji(alert.severity)} ${alert.severity}\n\n` +
-                    `**Details:** ${alert.headline}\n\n---`
-                  ).join('\n\n');
-                
-                setAgentResponse(formattedText);
-                setAlerts(jsonData.alerts);
-                parseAlertLocations(formattedText, location);
-                return;
-              }
-            }
-          } catch (e) {
-            console.error('[Dashboard] Failed to parse JSON from content:', e);
-          }
-          
-          // If no JSON found, use raw content
-          setAgentResponse(response.content);
-          parseAlertLocations(response.content, location);
-        }
-      } catch (error) {
-        console.error('[Dashboard] Failed to load alerts:', error);
-        setAgentResponse('Failed to load alerts. Please try again.');
-      } finally {
-        setLoading(false);
-      }
+      loadAlerts(location);
     }
   };
 
@@ -604,6 +461,13 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      <RiskAnalysisModal
+        isOpen={isRiskModalOpen}
+        onClose={() => setIsRiskModalOpen(false)}
+        analysis={riskAnalysis}
+        isLoading={isAnalyzingRisk}
+        alert={selectedAlertForAnalysis}
+      />
       {/* Severe Weather Events Section */}
       {severeEvents.length > 0 && (
         <div className="bg-white rounded-lg shadow-md p-6">
@@ -642,7 +506,7 @@ const Dashboard = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {severeEvents.slice(carouselIndex, carouselIndex + eventsPerPage).map((event, index) => (
-              <SevereWeatherCard key={carouselIndex + index} event={event} />
+              <SevereWeatherCard key={carouselIndex + index} event={event} onAnalyzeRisk={handleAnalyzeRisk} />
             ))}
           </div>
           {severeEvents.length > eventsPerPage && (
@@ -742,28 +606,22 @@ const Dashboard = () => {
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
           </div>
+        ) : alerts.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {alerts.map((alert, index) => (
+              <SevereWeatherCard key={index} event={alert} onAnalyzeRisk={handleAnalyzeRisk} />
+            ))}
+          </div>
         ) : agentResponse ? (
-          <div className="space-y-4">
-            <ReactMarkdown
-              components={{
-                h1: ({node, children, ...props}) => <h1 className="text-xl font-bold text-gray-900 mb-3" {...props}>{children}</h1>,
-                h2: ({node, children, ...props}) => <h2 className="text-lg font-semibold text-gray-800 mb-2 mt-4" {...props}>{children}</h2>,
-                h3: ({node, children, ...props}) => <h3 className="text-md font-semibold text-gray-700 mb-2 mt-3" {...props}>{children}</h3>,
-                p: ({node, ...props}) => <p className="text-gray-700 mb-3 leading-relaxed" {...props} />,
-                ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2" {...props} />,
-                li: ({node, ...props}) => <li className="text-gray-700" {...props} />,
-                strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
-                hr: ({node, ...props}) => <hr className="my-6 border-gray-300" {...props} />,
-              }}
-            >
-              {agentResponse}
-            </ReactMarkdown>
+          <div className="text-center py-12 text-gray-500">
+            <ExclamationTriangleIcon className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+            <p className="text-lg font-medium text-gray-600 mb-2">{agentResponse}</p>
           </div>
         ) : (
           <div className="text-center py-12 text-gray-500">
             <ExclamationTriangleIcon className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg font-medium text-gray-600 mb-2">No Alerts Selected</p>
-            <p className="text-sm text-gray-500">Please select one of the criteria above or enter a location to get alerts</p>
+            <p className="text-lg font-medium text-gray-600 mb-2">No Location Selected</p>
+            <p className="text-sm text-gray-500">Please select a region, state, or enter a custom location to view active alerts.</p>
           </div>
         )}
       </div>

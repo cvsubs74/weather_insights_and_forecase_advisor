@@ -1,130 +1,80 @@
-from typing import List
-from google.adk.agents import LlmAgent, SequentialAgent
+import os
+import json
+import logging
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field
-from shared_tools.tools import get_census_tracts_in_area, get_flood_risk_data, get_nws_alerts, get_census_demographics
+from google.adk.agents import LlmAgent, SequentialAgent
 from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from google.adk.tools import google_search
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class RiskAnalysisSummary(BaseModel):
-    """Structured output for risk analysis"""
-    alert_summary: str = Field(description="Overview of the weather alert")
-    population_at_risk: int = Field(description="Estimated population affected")
-    risk_score: int = Field(description="Overall risk score (0-100)")
-    risk_level: str = Field(description="Risk level (Low, Medium, High, Severe)")
-    vulnerable_areas: List[str] = Field(description="List of areas with high population and risk")
-    recommendations: List[str] = Field(description="Actionable recommendations for emergency managers")
-    evacuation_needed: bool = Field(description="Whether evacuation is recommended")
+    """Provides a concise, search-grounded risk analysis for a weather alert."""
+    alert_summary: str = Field(description="A one-sentence summary of the weather alert.")
+    potential_impacts: List[str] = Field(description="A list of potential impacts grounded in search results (e.g., 'Road closures', 'Power outages').")
+    safety_recommendations: List[str] = Field(description="Actionable recommendations for the public based on official advice found in search results.")
+    supporting_links: List[str] = Field(description="A list of 1-3 highly relevant URLs from the search results, pointing to official sources if possible.")
 
-# Phase 1: Alert Retriever
-alert_retriever = LlmAgent(
+# --- Agent Definitions ---
+
+# Phase 1: Alert Parser
+# This agent ensures the input is clean and structured for the next phases.
+# Phase 1: Alert Parser
+alert_parser = LlmAgent(
     model="gemini-2.5-flash",
-    name="alert_retriever",
-    description="Retrieves active weather alerts for a specified location",
+    name="alert_parser",
+    description="Parses a single weather alert to extract key information for risk analysis",
     instruction="""
-    You are a weather alert data specialist.
-    
+    You are a data extraction specialist.
+    Your input is a single weather alert object.
+
     **Your Task:**
-    1. Get the active weather alert for the user-provided location.
-    2. Use the `get_nws_alerts` tool.
-    3. Extract key details:
-       - Alert type and severity
-       - Affected zones
-       - Alert description
-       - Time window
-    4. Store alert data for the next agent
-    
-    Pass the alert details to the census data retriever.
+    1.  **Parse the Input**: The user's input is a JSON object or text representing a single weather alert.
+    2.  **Extract Key Fields**: From the input, extract the following critical pieces of information:
+        *   The type of alert (e.g., "Tornado Warning").
+        *   The severity level (e.g., "Severe").
+        *   Affected Zones and areas.
+        *   The full alert text for context.
+    3.  **Store for Next Agent**: Store these extracted fields in a structured way for the `census_data_retriever`.
     """,
-    tools=[get_nws_alerts],
-    output_key="alert_data",
+    output_key="parsed_alert",
     before_model_callback=log_agent_entry,
     after_model_callback=log_agent_exit,
 )
 
-# Phase 2: Census Data Retriever
-census_data_retriever = LlmAgent(
-    model="gemini-2.5-flash",
-    name="census_data_retriever",
-    description="Retrieves population and flood zone data for affected areas",
+# Phase 2: Risk Researcher 
+# This agent uses the google_search tool to gather real-time information.
+risk_researcher = LlmAgent(
+    name="risk_researcher",
+    model="gemini-2.5-flash-lite",
+    description="Researches the weather alert using Google Search to find real-world impacts and advice.",
+    tools=[google_search],
     instruction="""
-    You are a demographic data specialist.
+    You are a professional risk researcher. Your goal is to gather real-time, relevant information about a weather alert using Google Search.
     
     **Your Task:**
-    1. Get the affected areas from `state['alert_data']`.
-    2. For each area, use `get_census_demographics` to get population data.
-    3. Use `get_census_tracts_in_area` to identify specific census tracts.
-    4. If flood-related alert, use `get_flood_risk_data`:
-       - state: from alert
-       - county: from alert (optional)
-    5. Calculate total population at risk by summing all affected areas
-    6. Store census data for risk calculation
-    
-    Pass the census data to the risk calculator.
+    Based on the alert summary provided, perform targeted Google searches to find:
+    1.  **Potential Impacts**: What are the potential impacts in affected areas? (e.g., road closures, power outages, infrastructure damage).
+    2.  **Safety Recommendations**: What are the official safety recommendations from authorities (like FEMA, NWS, or local government)?
+
+    Perform at least two focused searches to gather this information. The search results will be used to create the final risk analysis.
     """,
-    tools=[get_census_demographics, get_census_tracts_in_area, get_flood_risk_data],
-    output_key="census_data",
+    output_key="research_findings",
     before_model_callback=log_agent_entry,
     after_model_callback=log_agent_exit,
 )
 
-# Phase 3: Risk Calculator
-risk_calculator = LlmAgent(
-    model="gemini-2.5-flash",
-    name="risk_calculator",
-    description="Calculates risk scores based on alert severity and population data",
+# Phase 3: Risk Synthesizer
+# This agent synthesizes the alert data and search findings into a final summary.
+risk_synthesizer = LlmAgent(
+    model="gemini-2.5-flash-lite",
+    name="risk_synthesizer",
+    description="Synthesizes alert data and search results into a final risk analysis summary.",
     instruction="""
-    You are a risk assessment specialist.
-    
-    **Your Task:**
-    1. Get alert severity from `state['alert_data']`.
-    2. Get population data from `state['census_data']`.
-    3. Get flood risk if available from `state['census_data']`.
-    4. Calculate a risk score (0-100) based on:
-       - Severity (Minor=10, Moderate=40, Severe=70, Extreme=90)
-       - Population density (higher density = higher score)
-       - Flood risk (if present, adds to score)
-       - Assign a risk level based on the score:
-       - 0-25: Low
-       - 26-50: Medium
-       - 51-75: High
-       - 76-100: Severe
-    
-    5. Identify vulnerable areas (high population + high severity)
-    
-    Store risk scores for the recommendation generator.
-    """,
-    output_key="risk_scores",
-    before_model_callback=log_agent_entry,
-    after_model_callback=log_agent_exit,
-)
-
-# Phase 4: Risk Recommendations Generator
-recommendations_generator = LlmAgent(
-    model="gemini-2.5-flash",
-    name="recommendations_generator",
-    description="Generates risk analysis summary with recommendations",
-    instruction="""
-    You are an emergency management specialist.
-    
-    **Your Task:**
-    Generate a comprehensive risk analysis summary with actionable recommendations.
-    
-    **Process:**
-    1. Extract alert summary from state["alert_data"]
-    2. Extract population data from state["census_data"]
-    3. Extract risk assessment from state["risk_scores"]
-    4. Calculate overall risk score (0-100)
-    5. Determine risk level (low/Medium/High/Severe)
-    6. Identify vulnerable areas
-    7. Generate specific recommendations:
-       - Immediate actions
-       - Preparation steps
-       - Evacuation guidance if needed
-    8. Determine if evacuation is needed
-    
-    **CRITICAL CONSTRAINTS:**
-    - You must return a structured JSON response that matches the RiskAnalysisSummary schema exactly
-    
-    **CRITICAL**: Return structured JSON matching RiskAnalysisSummary schema exactly.
+    You are an expert risk analyst. Your task is to synthesize the provided data into structured output.
     """,
     output_schema=RiskAnalysisSummary,
     output_key="risk_analysis_summary",
@@ -132,16 +82,16 @@ recommendations_generator = LlmAgent(
     after_model_callback=log_agent_exit,
 )
 
+# --- Agent Workflow Definition ---
 
-# Sequential Pipeline: Alert -> Census -> Risk -> Recommendations
 risk_analysis_workflow = SequentialAgent(
-    name="risk_analysis_pipeline",
-    description="Analyzes weather alert risks by combining alert severity, population data, and flood zones to generate actionable safety recommendations",
+    name="search_based_risk_analysis_workflow",
+    description="Analyzes weather alert risks using real-time Google Search results.",
     sub_agents=[
-        alert_retriever,
-        census_data_retriever,
-        risk_calculator,
-        recommendations_generator,
+        alert_parser,
+        risk_researcher,
+        risk_synthesizer,
     ],
 )
+
 root_agent = risk_analysis_workflow

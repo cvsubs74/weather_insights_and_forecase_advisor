@@ -1542,3 +1542,6 @@ def calculate_evacuation_priority(
             "status": "error",
             "message": f"Failed to calculate evacuation priority: {str(e)}"
         }
+
+
+
