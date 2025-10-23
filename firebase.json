@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "weather-insights-forecaster",
+    "site": "weather-insights-advisor",
     "public": "weather-insights-ui/build",
     "ignore": [
       "firebase.json",

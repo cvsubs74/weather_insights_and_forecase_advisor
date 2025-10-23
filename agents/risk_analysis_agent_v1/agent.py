@@ -1,8 +1,8 @@
 from typing import List
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import get_census_tracts_in_area, get_flood_risk_data, get_nws_alerts, get_census_demographics, geocode_address
-from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from .tools.tools import get_census_tracts_in_area, get_flood_risk_data, get_nws_alerts, get_census_demographics, geocode_address
+from .tools.logging_utils import log_agent_entry, log_agent_exit
 
 class RiskAnalysisSummary(BaseModel):
     """Structured output for risk analysis"""
@@ -16,7 +16,7 @@ class RiskAnalysisSummary(BaseModel):
 
 # Phase 1: Alert Parser
 alert_parser = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="alert_parser",
     description="Parses a single weather alert to extract key information for risk analysis",
     instruction="""
@@ -40,7 +40,7 @@ alert_parser = LlmAgent(
 
 # Phase 2: Census Data Retriever
 census_data_retriever = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="census_data_retriever",
     description="Retrieves population and flood zone data for affected areas",
     instruction="""
@@ -66,7 +66,7 @@ census_data_retriever = LlmAgent(
 
 # Phase 3: Risk Calculator
 risk_calculator = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="risk_calculator",
     description="Calculates risk scores based on alert severity and population data",
     instruction="""
@@ -97,7 +97,7 @@ risk_calculator = LlmAgent(
 
 # Phase 4: Risk Recommendations Generator
 recommendations_generator = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="recommendations_generator",
     description="Generates risk analysis summary with recommendations",
     instruction="""

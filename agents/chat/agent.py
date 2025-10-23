@@ -1,17 +1,15 @@
 from google.adk.agents import LlmAgent
-
 # Import the actual workflow agents
 from alerts_snapshot_agent.agent import root_agent as alerts_workflow
 from forecast_agent.agent import root_agent as forecast_workflow
 from risk_analysis_agent.agent import root_agent as risk_workflow
 from emergency_resources_agent.agent import root_agent as emergency_workflow
-from google.adk.tools.agent_tool import AgentTool
+from .tools.agent_tool import AgentTool
 
 # Chat Orchestrator - Routes to workflow agents
 chat_orchestrator = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="chat_orchestrator",
-    description="Intelligent weather assistant that routes queries to specialized workflow agents",
     instruction="""
     You are an intelligent weather assistant orchestrator.
     

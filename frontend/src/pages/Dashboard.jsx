@@ -141,14 +141,20 @@ const Dashboard = () => {
         setAlerts(response.alerts);
         if (response.alerts.length > 0) {
           setAgentResponse(`Found ${response.alerts.length} alerts for ${currentLocation}.`);
-          parseAlertLocations(response.alerts.map(a => a.headline).join(' '), currentLocation);
+          if (response.map_data) {
+            setMapCenter(response.map_data.center);
+            setAlertMarkers(response.map_data.markers);
+          }
         } else {
           setAgentResponse(`No active alerts found for ${currentLocation}.`);
-          parseAlertLocations('', currentLocation);
+          setAlertMarkers([]); // Clear markers when no alerts are found
         }
       } else {
         setAgentResponse(response?.content || `No active alerts found for ${currentLocation}.`);
-        parseAlertLocations(response?.content || '', currentLocation);
+        if (response.map_data) {
+          setMapCenter(response.map_data.center);
+          setAlertMarkers(response.map_data.markers);
+        }
       }
     } catch (error) {
       console.error('Failed to load alerts:', error);
@@ -301,95 +307,6 @@ const Dashboard = () => {
     return null;
   };
 
-  const parseAlertLocations = (content, currentLocation) => {
-    const markers = [];
-    
-    // Regional centers for broad queries
-    const regionalCenters = {
-      'all US states': [39.8283, -98.5795],
-      'western US states': [40.0, -115.0],
-      'midwest US states': [41.5, -93.5],
-      'southern US states': [32.0, -90.0],
-      'northeast US states': [42.5, -73.5]
-    };
-    
-    // Location database for US states and major cities
-    const locationMap = {
-      // California
-      'San Francisco': [37.7749, -122.4194],
-      'Los Angeles': [34.0522, -118.2437],
-      'San Diego': [32.7157, -117.1611],
-      'Sacramento': [38.5816, -121.4944],
-      'Eureka': [40.8021, -124.1637],
-      'Monterey': [36.6002, -121.8947],
-      'Santa Barbara': [34.4208, -119.6982],
-      'San Luis Obispo': [35.2828, -120.6596],
-      'Mendocino': [39.3077, -123.7994],
-      'Del Norte': [41.7443, -124.1337],
-      'Humboldt': [40.7450, -123.8695],
-      'California': [36.7783, -119.4179],
-      // Texas
-      'Houston': [29.7604, -95.3698],
-      'Dallas': [32.7767, -96.7970],
-      'Austin': [30.2672, -97.7431],
-      'San Antonio': [29.4241, -98.4936],
-      'Texas': [31.9686, -99.9018],
-      // Florida
-      'Miami': [25.7617, -80.1918],
-      'Tampa': [27.9506, -82.4572],
-      'Orlando': [28.5383, -81.3792],
-      'Jacksonville': [30.3322, -81.6557],
-      'Florida': [27.6648, -81.5158],
-      // New York
-      'New York': [40.7128, -74.0060],
-      'Buffalo': [42.8864, -78.8784],
-      'Albany': [42.6526, -73.7562],
-      // Other major cities
-      'Chicago': [41.8781, -87.6298],
-      'Seattle': [47.6062, -122.3321],
-      'Denver': [39.7392, -104.9903],
-      'Phoenix': [33.4484, -112.0740],
-      'Atlanta': [33.7490, -84.3880],
-      'Boston': [42.3601, -71.0589],
-      'Washington': [38.9072, -77.0369],
-      'Portland': [45.5152, -122.6784],
-      'Las Vegas': [36.1699, -115.1398],
-      'New Orleans': [29.9511, -90.0715]
-    };
-    
-    // Search for location names in the response
-    Object.entries(locationMap).forEach(([name, coords]) => {
-      if (content.toLowerCase().includes(name.toLowerCase())) {
-        markers.push({
-          lat: coords[0],
-          lng: coords[1],
-          title: name,
-          address: 'Alert Zone'
-        });
-      }
-    });
-    
-    // Remove duplicates
-    const uniqueMarkers = markers.filter((marker, index, self) =>
-      index === self.findIndex((m) => m.lat === marker.lat && m.lng === marker.lng)
-    );
-    
-    setAlertMarkers(uniqueMarkers);
-    
-    // Set map center based on markers or regional center
-    if (uniqueMarkers.length > 0) {
-      // Calculate center from markers
-      const avgLat = uniqueMarkers.reduce((sum, m) => sum + m.lat, 0) / uniqueMarkers.length;
-      const avgLng = uniqueMarkers.reduce((sum, m) => sum + m.lng, 0) / uniqueMarkers.length;
-      setMapCenter([avgLat, avgLng]);
-    } else if (regionalCenters[currentLocation]) {
-      // Use regional center for broad queries
-      setMapCenter(regionalCenters[currentLocation]);
-    } else {
-      // Default to US center
-      setMapCenter([39.8283, -98.5795]);
-    }
-  };
 
   const handleFilterChange = (filterType, value) => {
     let displayName = value;

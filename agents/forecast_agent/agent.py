@@ -1,8 +1,8 @@
 from typing import List, Dict
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import geocode_address, get_nws_forecast
-from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from .tools.tools import geocode_address, get_nws_forecast
+from .tools.logging_utils import log_agent_entry, log_agent_exit
 
 class DailyForecast(BaseModel):
     """Individual day forecast"""
@@ -24,7 +24,7 @@ class ForecastSummary(BaseModel):
 # Phase 1: Geocoding Agent
 geocoder = LlmAgent(
     name="geocoder",
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     description="Geocodes a location name into latitude and longitude coordinates",
     instruction="""
     You are a geocoding specialist. Your task is to convert a location name (e.g., "San Francisco, CA") into geographic coordinates.
@@ -42,7 +42,7 @@ geocoder = LlmAgent(
 # Phase 2: Forecast Retrieval Agent
 retriever = LlmAgent(
     name="forecast_retriever",
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     description="Retrieves 7-day weather forecast using coordinates from the previous step",
     instruction="""
     You are a weather data retrieval specialist. Your task is to get the 7-day forecast for the coordinates provided in the state.
@@ -59,7 +59,7 @@ retriever = LlmAgent(
 
 formatter = LlmAgent(
     name="forecast_formatter",
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     description="Formats raw forecast data into a structured summary",
     instruction="""
     You are a weather forecaster. Your task is to synthesize the geocode and forecast data into a human-readable summary.

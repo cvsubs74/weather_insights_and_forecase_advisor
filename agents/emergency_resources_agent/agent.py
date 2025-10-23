@@ -1,8 +1,13 @@
 from typing import List, Optional, Dict
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import geocode_address, search_nearby_places, get_directions
-from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from .tools.tools import geocode_address, search_nearby_places, get_directions
+from .tools.logging_utils import log_agent_entry, log_agent_exit
+
+class Coordinates(BaseModel):
+    """Geographic coordinates"""
+    lat: float = Field(description="Latitude")
+    lng: float = Field(description="Longitude")
 
 class Facility(BaseModel):
     """Emergency facility details"""
@@ -10,6 +15,7 @@ class Facility(BaseModel):
     address: str = Field(description="Full address")
     distance: float = Field(description="Distance in miles")
     phone: Optional[str] = Field(description="Phone number")
+    coordinates: Coordinates = Field(description="Geographic coordinates")
 
 class EvacuationRoute(BaseModel):
     """Evacuation route details"""
@@ -22,12 +28,13 @@ class EmergencyResourcesSummary(BaseModel):
     """Structured output for emergency resources"""
     hospitals: List[Facility] = Field(description="List of nearby hospitals")
     shelters: List[Facility] = Field(description="List of nearby emergency shelters")
+    pharmacies: List[Facility] = Field(description="List of nearby pharmacies")
     evacuation_routes: List[EvacuationRoute] = Field(description="Recommended evacuation routes")
     insights: str = Field(description="Summary and safety recommendations")
 
 # Phase 1: Location Parser
 location_parser = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="location_parser",
     description="Parses location from user query and geocodes it",
     instruction="""
@@ -45,35 +52,26 @@ location_parser = LlmAgent(
     before_model_callback=log_agent_entry,
     after_model_callback=log_agent_exit,
 )
-
 # Phase 2: Resource Finder
 resource_finder = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="resource_finder",
-    description="Finds emergency shelters and hospitals near the location",
+    description="Finds emergency resources (shelters, hospitals, pharmacies) near a location based on user-specified type and radius.",
     instruction="""
-    You are an emergency resource locator.
-    
-    **Your Task:**
-    Find emergency shelters and hospitals near the location provided in `state['location_data']`.
-    
-    **Process:**
-    1. Extract coordinates from state["location_data"]
-    2. Call search_nearby_places for shelters:
-       - latitude: from state
-       - longitude: from state
-       - place_type: "emergency shelter"
-       - radius: user-specified or 50 (miles)
-    3. Call search_nearby_places for hospitals:
-       - latitude: from state
-       - longitude: from state
-       - place_type: "hospital"
-       - radius: user-specified or 50 (miles)
-    4. Extract facility details (name, address, distance, phone, coordinates)
-    5. Sort by distance (closest first)
-    6. Store facilities data for formatter
-    
-    Pass the facilities data to the route calculator.
+    You are a dynamic emergency resource locator.
+
+    **CONTEXT:**
+    The user has provided a `location`, a `resourceType` (e.g., 'shelters', 'hospitals', 'pharmacies'), and a `radius`.
+    The previous agent has geocoded the location and stored it in `state['location_data']`.
+
+    **YOUR TASK:**
+    1.  Identify the `resourceType` and `radius` from the initial user input, which are available in the `state`.
+    2.  Map the `resourceType` to the correct `place_type` for the tool:
+        - 'shelters' -> 'emergency shelter'
+        - 'hospitals' -> 'hospital'
+        - 'pharmacies' -> 'pharmacy'
+    3.  Call the `search_nearby_places` tool using the coordinates from `state['location_data']`, the user's `radius`, and the correct `place_type`.
+    4.  Store the results for the next agent.
     """,
     tools=[search_nearby_places],
     output_key="facilities",
@@ -83,7 +81,7 @@ resource_finder = LlmAgent(
 
 # Phase 3: Route Calculator
 route_calculator = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="route_calculator",
     description="Calculates evacuation routes from the location",
     instruction="""
@@ -115,32 +113,29 @@ route_calculator = LlmAgent(
     after_model_callback=log_agent_exit,
 )
 
-# Phase 4: Resource Formatter
-resource_formatter = LlmAgent(
-    model="gemini-2.5-flash",
-    name="resource_formatter",
-    description="Formats emergency resources into structured output",
+# Phase 4: Final Synthesizer
+final_synthesizer = LlmAgent(
+    model="gemini-2.5-flash-lite",
+    name="final_synthesizer",
+    description="Synthesizes all collected data into the final structured output.",
     instruction="""
-    You are an emergency resources presentation specialist.
-    
-    **Your Task:**
-    Generate a comprehensive summary of emergency resources with actionable recommendations.
-    
-    **Process:**
-    1. Extract hospitals from state["facilities"]
-    2. Extract shelters from state["facilities"]
-    3. Extract evacuation routes from state["routes"]
-    4. Generate insights and recommendations:
-       - Nearest shelter location
-       - Hospital availability
-       - Best evacuation route
-       - Emergency contact information
-    
-    **CRITICAL CONSTRAINTS:**
-    - You must return a structured JSON response that matches the EmergencyResourcesSummary schema exactly
+    You are the final assembly agent. Your only job is to take the data collected by the previous agents and structure it into the final `EmergencyResourcesSummary` JSON object.
+
+    **CONTEXT:**
+    - The `state['facilities']` key contains a list of found facilities (shelters, hospitals, or pharmacies).
+    - The `state['routes']` key contains a list of calculated evacuation routes.
+    - The `state['input']['resourceType']` contains the type of resource the user searched for.
+
+    **YOUR TASK:**
+    1.  Create the `EmergencyResourcesSummary` object.
+    2.  Populate the correct facility list (`shelters`, `hospitals`, or `pharmacies`) using the data from `state['facilities']`.
+    3.  Populate the `evacuation_routes` list using the data from `state['routes']`.
+    4.  Generate a brief, helpful summary for the `insights` field based on what was found.
+
+    **CRITICAL:** Output ONLY the final, valid `EmergencyResourcesSummary` JSON object.
     """,
     output_schema=EmergencyResourcesSummary,
-    output_key="resources_summary",
+    output_key="final_summary",
     before_model_callback=log_agent_entry,
     after_model_callback=log_agent_exit,
 )
@@ -153,7 +148,7 @@ emergency_resources_workflow = SequentialAgent(
         location_parser,
         resource_finder,
         route_calculator,
-        resource_formatter,
+        final_synthesizer,
     ],
 )
 

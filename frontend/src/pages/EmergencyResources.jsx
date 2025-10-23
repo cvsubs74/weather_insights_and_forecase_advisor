@@ -1,77 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { MagnifyingGlassIcon, MapPinIcon, BuildingOffice2Icon, PhoneIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { MapPinIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import LocationMap from '../components/LocationMap';
 import api from '../services/api';
 
+const resourceDetails = {
+  shelters: { icon: '🏠', title: 'Emergency Shelters' },
+  hospitals: { icon: '🏥', title: 'Hospitals' },
+  pharmacies: { icon: '💊', title: 'Pharmacies' },
+};
+
 const EmergencyResources = () => {
-  const [location, setLocation] = useState(() => {
-    return localStorage.getItem('emergencyLocation') || '';
-  });
-  const [resourceType, setResourceType] = useState(() => {
-    return localStorage.getItem('emergencyResourceType') || 'shelters';
-  });
-  const [radius, setRadius] = useState(() => {
-    const saved = localStorage.getItem('emergencyRadius');
-    return saved ? Number(saved) : 10;
-  });
-  const [agentResponse, setAgentResponse] = useState(() => {
-    return localStorage.getItem('emergencyResponse') || '';
-  });
-  const [mapUrl, setMapUrl] = useState(() => {
-    return localStorage.getItem('emergencyMapUrl') || '';
-  });
-  const [mapMarkers, setMapMarkers] = useState(() => {
-    const saved = localStorage.getItem('emergencyMapMarkers');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [mapCenter, setMapCenter] = useState(() => {
-    const saved = localStorage.getItem('emergencyMapCenter');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [location, setLocation] = useState(() => localStorage.getItem('emergencyLocation') || '');
+  const [resourceType, setResourceType] = useState(() => localStorage.getItem('emergencyResourceType') || 'shelters');
+  const [radius, setRadius] = useState(() => Number(localStorage.getItem('emergencyRadius')) || 10);
+  const [agentResponse, setAgentResponse] = useState(() => localStorage.getItem('emergencyResponse') || '');
+  const [fullResponse, setFullResponse] = useState(() => JSON.parse(localStorage.getItem('emergencyFullResponse') || 'null'));
+  const [mapMarkers, setMapMarkers] = useState(() => JSON.parse(localStorage.getItem('emergencyMapMarkers') || '[]'));
+  const [mapCenter, setMapCenter] = useState(() => JSON.parse(localStorage.getItem('emergencyMapCenter') || 'null'));
   const [loading, setLoading] = useState(false);
 
-  // Track if values are being loaded from localStorage to prevent triggering effects
-  const isLoadingFromStorage = React.useRef(true);
-  
-  // Save to localStorage whenever state changes (but not on initial load)
-  useEffect(() => {
-    if (isLoadingFromStorage.current) {
-      isLoadingFromStorage.current = false;
-      return;
-    }
-    if (location) localStorage.setItem('emergencyLocation', location);
-  }, [location]);
+  // Save state to localStorage
+  useEffect(() => { localStorage.setItem('emergencyLocation', location); }, [location]);
+  useEffect(() => { localStorage.setItem('emergencyResourceType', resourceType); }, [resourceType]);
+  useEffect(() => { localStorage.setItem('emergencyRadius', radius.toString()); }, [radius]);
+  useEffect(() => { localStorage.setItem('emergencyResponse', agentResponse); }, [agentResponse]);
+  useEffect(() => { localStorage.setItem('emergencyFullResponse', JSON.stringify(fullResponse)); }, [fullResponse]);
+  useEffect(() => { localStorage.setItem('emergencyMapMarkers', JSON.stringify(mapMarkers)); }, [mapMarkers]);
+  useEffect(() => { localStorage.setItem('emergencyMapCenter', JSON.stringify(mapCenter)); }, [mapCenter]);
 
-  useEffect(() => {
-    if (!isLoadingFromStorage.current && location) {
-      localStorage.setItem('emergencyResourceType', resourceType);
-    }
-  }, [resourceType]);
-
-  useEffect(() => {
-    if (!isLoadingFromStorage.current && location) {
-      localStorage.setItem('emergencyRadius', radius.toString());
-    }
-  }, [radius]);
-
-  useEffect(() => {
-    if (agentResponse) localStorage.setItem('emergencyResponse', agentResponse);
-  }, [agentResponse]);
-
-  useEffect(() => {
-    if (mapUrl) localStorage.setItem('emergencyMapUrl', mapUrl);
-  }, [mapUrl]);
-
-  useEffect(() => {
-    if (mapMarkers.length > 0) localStorage.setItem('emergencyMapMarkers', JSON.stringify(mapMarkers));
-  }, [mapMarkers]);
-
-  useEffect(() => {
-    if (mapCenter) localStorage.setItem('emergencyMapCenter', JSON.stringify(mapCenter));
-  }, [mapCenter]);
-
-  // Listen for session expiration events
+  // Session expiration handler
   useEffect(() => {
     const handleSessionExpired = () => {
       console.log('[EmergencyResources] Session expired, clearing state');
@@ -79,90 +37,48 @@ const EmergencyResources = () => {
       setResourceType('shelters');
       setRadius(10);
       setAgentResponse('');
-      setMapUrl('');
+      setFullResponse(null);
       setMapMarkers([]);
       setMapCenter(null);
     };
-    
     window.addEventListener('sessionExpired', handleSessionExpired);
-    
-    return () => {
-      window.removeEventListener('sessionExpired', handleSessionExpired);
-    };
+    return () => window.removeEventListener('sessionExpired', handleSessionExpired);
   }, []);
 
-  const handleSearch = async (e) => {
+  const handleSearch = useCallback(async (e) => {
     if (e) e.preventDefault();
     if (!location) return;
 
-    // Don't clear localStorage data, only clear UI state for new search
     setLoading(true);
-    
     try {
-      let response;
-      if (resourceType === 'shelters') {
-        response = await api.findShelters(location, radius);
-      } else {
-        response = await api.findHospitals(location, radius);
-      }
-      
-      if (response && response.content) {
-        let cleanedContent = response.content;
-        
-        // Extract map URL from response
-        const mapUrlMatch = response.content.match(/https:\/\/www\.google\.com\/maps[^\s)]+/);
-        if (mapUrlMatch) {
-          const originalUrl = mapUrlMatch[0];
-          console.log('Found map URL:', originalUrl);
-          setMapUrl(originalUrl);
-          
-          // Remove the map URL and surrounding text from the response
-          cleanedContent = cleanedContent
-            .replace(/Would you like me to find alternative routes or additional locations\?\s*/gi, '')
-            .replace(/View map:\s*https:\/\/www\.google\.com\/maps[^\s)]+/g, '')
-            .replace(/\n\n+/g, '\n\n')
-            .trim();
-        }
-        
-        // Parse location data from response to extract coordinates
-        // Look for patterns like: "1. Name (lat, lng)" or "Location: lat, lng"
-        const markers = [];
-        const locationPattern = /(\d+)\.\s*([^(]+)\s*\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/g;
-        let match;
-        
-        while ((match = locationPattern.exec(response.content)) !== null) {
-          const [, index, name, lat, lng] = match;
-          markers.push({
-            lat: parseFloat(lat),
-            lng: parseFloat(lng),
-            title: name.trim(),
-            address: ''
-          });
-        }
-        
-        // Also try to extract from address format: "Address: street, city (lat, lng)"
-        const addressPattern = /([^:]+):\s*([^(]+)\s*\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/g;
-        while ((match = addressPattern.exec(response.content)) !== null) {
-          const [, name, address, lat, lng] = match;
-          if (!markers.some(m => m.lat === parseFloat(lat) && m.lng === parseFloat(lng))) {
-            markers.push({
-              lat: parseFloat(lat),
-              lng: parseFloat(lng),
-              title: name.trim(),
-              address: address.trim()
-            });
+      const response = await api.findResources(location, resourceType, radius);
+      setFullResponse(response);
+      if (response) {
+        setAgentResponse(response.insights || 'No additional insights were provided.');
+        const facilities = response[resourceType] || [];
+        const markers = facilities.map(facility => ({
+          lat: facility.coordinates.lat,
+          lng: facility.coordinates.lng,
+          title: facility.name,
+          address: facility.address
+        }));
+        setMapMarkers(markers);
+
+        if (markers.length > 0) {
+          setMapCenter([markers[0].lat, markers[0].lng]);
+        } else {
+          const geocodeResponse = await api.geocode(location);
+          if (geocodeResponse && geocodeResponse.lat) {
+            setMapCenter([geocodeResponse.lat, geocodeResponse.lng]);
+          } else {
+            setMapCenter(null);
           }
         }
-        
-        console.log('Extracted markers:', markers);
-        
-        if (markers.length > 0) {
-          setMapMarkers(markers);
-          // Set center to first marker
-          setMapCenter([markers[0].lat, markers[0].lng]);
-        }
-        
-        setAgentResponse(cleanedContent);
+      } else {
+        setAgentResponse('No resources found for the specified location.');
+        setFullResponse(null);
+        setMapMarkers([]);
+        setMapCenter(null);
       }
     } catch (error) {
       console.error('Failed to search resources:', error);
@@ -170,40 +86,22 @@ const EmergencyResources = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [location, resourceType, radius]);
 
-  // Auto-refresh when resourceType or radius changes (if location is already set)
-  // Only trigger if user actively changes these, not on initial load
-  const isInitialMount = React.useRef(true);
-  React.useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    if (location && agentResponse) {
-      handleSearch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceType, radius]);
-
-  const handleGetDirections = (resource) => {
-    // In production, this would open Google Maps or calculate route
-    alert(`Getting directions to ${resource.name}`);
-  };
 
   const handleClear = () => {
     setLocation('');
     setResourceType('shelters');
     setRadius(10);
     setAgentResponse('');
-    setMapUrl('');
+    setFullResponse(null);
     setMapMarkers([]);
     setMapCenter(null);
     localStorage.removeItem('emergencyLocation');
     localStorage.removeItem('emergencyResourceType');
     localStorage.removeItem('emergencyRadius');
     localStorage.removeItem('emergencyResponse');
-    localStorage.removeItem('emergencyMapUrl');
+    localStorage.removeItem('emergencyFullResponse');
     localStorage.removeItem('emergencyMapMarkers');
     localStorage.removeItem('emergencyMapCenter');
   };
@@ -277,7 +175,7 @@ const EmergencyResources = () => {
           <div className="bg-white rounded-lg shadow-md p-6 flex items-center justify-center" style={{minHeight: '500px'}}>
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto mb-4"></div>
-              <p className="text-gray-600 text-lg font-medium">Searching for {resourceType === 'shelters' ? 'shelters' : 'hospitals'}...</p>
+              <p className="text-gray-600 text-lg font-medium">Searching for {resourceDetails[resourceType]?.title.toLowerCase()}...</p>
               <p className="text-gray-500 text-sm mt-2">Near {location}</p>
             </div>
           </div>
@@ -308,15 +206,11 @@ const EmergencyResources = () => {
               </p>
               {mapMarkers.length > 0 ? (
                 <p className="text-xs text-gray-600 mt-1">
-                  Red markers show {resourceType === 'shelters' ? 'shelter' : 'hospital'} locations. Click markers for details and directions.
+                  Red markers show {resourceDetails[resourceType]?.title.toLowerCase()} locations. Click markers for details and directions.
                 </p>
               ) : (
                 <p className="text-xs text-gray-600 mt-1">
-                  {mapUrl && (
-                    <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                      Open in Google Maps for full view →
-                    </a>
-                  )}
+                  No locations found for this search.
                 </p>
               )}
             </div>
@@ -325,24 +219,35 @@ const EmergencyResources = () => {
           {/* Results List */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h3 className="text-xl font-bold text-gray-900 mb-4">
-              {resourceType === 'shelters' ? '🏠 Emergency Shelters' : '🏥 Hospitals'} near {location}
+              {resourceDetails[resourceType]?.icon || '📍'} {resourceDetails[resourceType]?.title || 'Resources'} near {location}
             </h3>
             <div className="space-y-4">
-              <ReactMarkdown
-                components={{
-                  h1: ({node, ...props}) => <h1 className="text-xl font-bold text-gray-900 mb-3" {...props} />,
-                  h2: ({node, ...props}) => <h2 className="text-lg font-semibold text-gray-800 mb-2 mt-4" {...props} />,
-                  h3: ({node, ...props}) => <h3 className="text-md font-semibold text-gray-700 mb-2 mt-3" {...props} />,
-                  p: ({node, ...props}) => <p className="text-gray-700 mb-3 leading-relaxed" {...props} />,
-                  ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2" {...props} />,
-                  li: ({node, ...props}) => <li className="text-gray-700" {...props} />,
-                  strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
-                  hr: ({node, ...props}) => <hr className="my-6 border-gray-300" {...props} />,
-                  a: ({node, ...props}) => <a className="text-primary hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-                }}
-              >
-                {agentResponse}
-              </ReactMarkdown>
+              <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3">
+                {(fullResponse && fullResponse[resourceType] && fullResponse[resourceType].length > 0) ? (
+                  fullResponse[resourceType].map((facility, index) => (
+                    <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                      <h4 className="font-bold text-gray-800">{facility.name}</h4>
+                      <p className="text-sm text-gray-600">{facility.address}</p>
+                      <p className="text-sm text-gray-500 mt-1">{facility.distance.toFixed(1)} miles away</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-500">No {resourceType} found for this search.</p>
+                )}
+              </div>
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <h4 className="text-lg font-semibold text-gray-800 mb-2">Agent Insights</h4>
+                <ReactMarkdown
+                  components={{
+                    p: ({node, ...props}) => <p className="text-gray-700 mb-3 leading-relaxed" {...props} />,
+                    ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2" {...props} />,
+                    li: ({node, ...props}) => <li className="text-gray-700" {...props} />,
+                    strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
+                  }}
+                >
+                  {agentResponse}
+                </ReactMarkdown>
+              </div>
             </div>
           </div>
         </div>

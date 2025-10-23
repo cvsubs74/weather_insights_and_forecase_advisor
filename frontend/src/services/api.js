@@ -15,30 +15,41 @@ const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
 class WeatherAgentAPI {
   constructor() {
-    // Create axios clients for each agent
+    const getBaseUrl = (agentName, port) => {
+      const envVar = `REACT_APP_WEATHER_${agentName.toUpperCase()}_AGENT_URL`;
+      const prodUrl = process.env[envVar];
+      if (prodUrl) {
+        console.log(`[API] Using production URL for ${agentName}: ${prodUrl}`);
+        return prodUrl;
+      }
+      const devUrl = `http://localhost:${port}`;
+      console.log(`[API] Using development URL for ${agentName}: ${devUrl}`);
+      return devUrl;
+    };
+
     this.clients = {
       alerts: axios.create({
-        baseURL: `http://localhost:${AGENT_PORTS.alerts}`,
+        baseURL: getBaseUrl('alerts_snapshot', AGENT_PORTS.alerts),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
       }),
       forecast: axios.create({
-        baseURL: `http://localhost:${AGENT_PORTS.forecast}`,
+        baseURL: getBaseUrl('forecast', AGENT_PORTS.forecast),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
       }),
       risk: axios.create({
-        baseURL: `http://localhost:${AGENT_PORTS.risk}`,
+        baseURL: getBaseUrl('risk_analysis', AGENT_PORTS.risk),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
       }),
       emergency: axios.create({
-        baseURL: `http://localhost:${AGENT_PORTS.emergency}`,
+        baseURL: getBaseUrl('emergency_resources', AGENT_PORTS.emergency),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
       }),
       chat: axios.create({
-        baseURL: `http://localhost:${AGENT_PORTS.chat}`,
+        baseURL: getBaseUrl('chat', AGENT_PORTS.chat),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
       }),
@@ -414,70 +425,13 @@ class WeatherAgentAPI {
 
       this.updateSessionTimestamp();
 
-      return {
-        content: alertsSummary?.insights || '',
-        alerts: alertsSummary?.alerts || [],
-        total_count: alertsSummary?.total_count || 0,
-        severe_count: alertsSummary?.severe_count || 0,
-        locations: alertsSummary?.locations || [],
-        session_id: sessionId,
-      };
+      return alertsSummary;
     } catch (error) {
       console.error('[API] Error getting alerts:', error);
       throw new Error(error.response?.data?.message || error.message || 'Failed to get alerts');
     }
   }
 
-  async findShelters(location, radius = 10) {
-    try {
-      console.log('[API] Finding shelters near:', location);
-      
-      // Create session first
-      const sessionResponse = await this.clients.emergency.post('/apps/emergency_resources_agent/users/user_001/sessions', {
-        state: {}
-      });
-      const sessionId = sessionResponse.data.id;
-      console.log('[API] Created emergency session:', sessionId);
-      
-      const response = await this.clients.emergency.post('/run', {
-        app_name: 'emergency_resources_agent',
-        user_id: 'user_001',
-        session_id: sessionId,
-        new_message: {
-          role: 'user',
-          parts: [{ text: `Find shelters near ${location} within ${radius} miles` }],
-        },
-        streaming: false,
-      });
-
-      const data = response.data;
-      let resourcesSummary = null;
-      
-      if (Array.isArray(data) && data.length > 0) {
-        const finalStep = data[data.length - 1];
-        const text = finalStep?.content?.parts?.[0]?.text;
-        
-        if (text) {
-          try {
-            resourcesSummary = JSON.parse(text);
-          } catch (e) {
-            console.error('[API] Failed to parse resources JSON:', e);
-          }
-        }
-      }
-
-      this.updateSessionTimestamp();
-
-      return {
-        content: resourcesSummary?.insights || '',
-        shelters: resourcesSummary?.shelters || [],
-        session_id: sessionId,
-      };
-    } catch (error) {
-      console.error('[API] Error finding shelters:', error);
-      throw new Error(error.response?.data?.message || error.message || 'Failed to find shelters');
-    }
-  }
 
   async getEvacuationRoute(origin, destination) {
     try {
@@ -587,9 +541,9 @@ class WeatherAgentAPI {
     }
   }
 
-  async findHospitals(location, radius = 5) {
+  async findResources(location, resourceType, radius = 10) {
     try {
-      console.log('[API] Finding hospitals near:', location);
+      console.log(`[API] Finding ${resourceType} near:`, location);
       
       // Create session first
       const sessionResponse = await this.clients.emergency.post('/apps/emergency_resources_agent/users/user_001/sessions', {
@@ -604,7 +558,7 @@ class WeatherAgentAPI {
         session_id: sessionId,
         new_message: {
           role: 'user',
-          parts: [{ text: `Find hospitals near ${location} within ${radius} miles` }],
+          parts: [{ text: `Find ${resourceType} near ${location} within ${radius} miles` }],
         },
         streaming: false,
       });
@@ -619,22 +573,45 @@ class WeatherAgentAPI {
         if (text) {
           try {
             resourcesSummary = JSON.parse(text);
+            console.log('[API] Parsed EmergencyResourcesSummary:', resourcesSummary);
           } catch (e) {
             console.error('[API] Failed to parse resources JSON:', e);
+            return null; // Return null on parsing error
           }
         }
       }
 
       this.updateSessionTimestamp();
 
-      return {
-        content: resourcesSummary?.insights || '',
-        hospitals: resourcesSummary?.hospitals || [],
-        session_id: sessionId,
-      };
+      return resourcesSummary; // Return the full object
     } catch (error) {
-      console.error('[API] Error finding hospitals:', error);
-      throw new Error(error.response?.data?.message || error.message || 'Failed to find hospitals');
+      console.error(`[API] Error finding ${resourceType}:`, error);
+      throw new Error(error.response?.data?.message || error.message || `Failed to find ${resourceType}`);
+    }
+  }
+
+  async geocode(address) {
+    try {
+      console.log('[API] Geocoding address:', address);
+      const response = await this.clients.emergency.post('/run', {
+        app_name: 'emergency_resources_agent',
+        user_id: 'user_001',
+        new_message: { parts: [{ text: `Geocode: ${address}` }] },
+        streaming: false,
+      });
+
+      const data = response.data;
+      if (Array.isArray(data) && data.length > 0) {
+        const finalStep = data[data.length - 1];
+        const text = finalStep?.content?.parts?.[0]?.text;
+        if (text) {
+          return JSON.parse(text);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('[API] Error geocoding address:', error);
+      return null;
     }
   }
 

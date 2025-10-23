@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent, SequentialAgent
-from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from .tools.logging_utils import log_agent_entry, log_agent_exit
 from google.adk.tools import google_search
 
 # Configure logging
@@ -24,7 +24,7 @@ class RiskAnalysisSummary(BaseModel):
 # This agent ensures the input is clean and structured for the next phases.
 # Phase 1: Alert Parser
 alert_parser = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="alert_parser",
     description="Parses a single weather alert to extract key information for risk analysis",
     instruction="""

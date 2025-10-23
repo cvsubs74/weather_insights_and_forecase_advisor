@@ -1,8 +1,8 @@
-from typing import List
+from typing import List, Dict, Any, Optional
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
-from shared_tools.tools import get_nws_alerts
-from shared_tools.logging_utils import log_agent_entry, log_agent_exit
+from .tools.tools import get_nws_alerts, geocode_address, generate_map
+from .tools.logging_utils import log_agent_entry, log_agent_exit
 
 class AlertDetail(BaseModel):
     """Individual weather alert details"""
@@ -22,11 +22,12 @@ class AlertsSummary(BaseModel):
     severe_count: int = Field(description="Number of severe/extreme alerts")
     locations: List[str] = Field(description="List of affected locations")
     insights: str = Field(description="Summary and safety recommendations")
+    map_data: Optional[Dict[str, Any]] = Field(description="Data for generating a map of alert locations")
 
 
 # Phase 1: Retriever Agent - Fetches alert data
 retriever_agent = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="alerts_retriever",
     description="Retrieves active weather alerts for specified locations",
     instruction="""
@@ -66,7 +67,7 @@ retriever_agent = LlmAgent(
 
 # Phase 2: Formatter Agent - Structures and analyzes alerts
 alerts_formatter = LlmAgent(
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     name="alerts_formatter",
     description="Formats alert data into structured summary",
     instruction="""
@@ -101,15 +102,61 @@ alerts_formatter = LlmAgent(
 )
 
 
-# Sequential Pipeline: Retriever → Formatter
+# Phase 3: Map Generator Agent - Geocodes locations and creates a map
+map_generator = LlmAgent(
+    model="gemini-2.5-flash-lite",
+    name="map_generator",
+    description="Generates a map of alert locations",
+    instruction="""
+    You are a geospatial visualization specialist.
+
+    **Your Task:**
+    Generate a map URL based on the locations provided by the previous agent.
+
+    **Input Data from State:**
+    -   A list of locations is available in `state['alerts_summary'].locations`.
+
+    **Process:**
+    1.  **Geocode Each Location**: For each location in the `state['alerts_summary'].locations` list, call the `geocode_address` tool to get its coordinates. Collect all the resulting coordinates.
+    2.  **Generate Map**: Once all locations are geocoded, call the `generate_map` tool. Use the collected coordinates as the `markers`.
+        -   Calculate a central latitude and longitude from the markers for `center_lat` and `center_lng`.
+        -   Set an appropriate `zoom` level to see all markers.
+
+    The final map data will be automatically saved to `state['map_data']`.
+    """,
+    tools=[geocode_address, generate_map],
+    output_key="map_data",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
+)
+
+# Phase 4: Final Synthesizer - Combines all data into the final output
+final_synthesizer = LlmAgent(
+    model="gemini-2.5-flash-lite",
+    name="final_synthesizer",
+    description="Combines alert summary and map data into the final output",
+    instruction="""
+    You are a data assembly specialist. Your task is to combine the structured alert data and the generated map data into a single, final AlertsSummary object.
+    """,
+    output_schema=AlertsSummary,
+    output_key="final_summary",
+    before_model_callback=log_agent_entry,
+    after_model_callback=log_agent_exit,
+)
+
+
+# Sequential Pipeline: Retriever → Formatter → MapGenerator → FinalSynthesizer
 alerts_snapshot_workflow = SequentialAgent(
     name="alerts_snapshot_pipeline",
-    description="Retrieves weather alerts and generates structured analysis with safety insights",
+    description="Retrieves weather alerts, generates structured analysis with safety insights, and creates a map.",
     sub_agents=[
         retriever_agent,
         alerts_formatter,
+        map_generator,
+        final_synthesizer,
     ],
 )
 
 # ADK export pattern
+# The root agent is the full workflow. The final output will be under the 'final_summary' key.
 root_agent = alerts_snapshot_workflow
