@@ -1408,131 +1408,64 @@ def get_flood_risk_data(
 def calculate_evacuation_priority(
     tool_context: ToolContext,
     hurricane_intensity: int,  # Category 1-5
-    include_resource_allocation: bool = True
 ) -> Dict[str, Any]:
-    """Calculate evacuation priority for census tracts based on hurricane intensity, flood history, and vulnerable populations.
-    
-    This tool correlates data from census tracts, flood history, and hurricane intensity to generate
-    a prioritized evacuation list with risk scores.
-    
+    """Calculate evacuation priority for geographic locations based on flood risk and hurricane intensity.
+
+    This tool uses historical flood data to identify high-risk locations and prioritizes them for evacuation.
+
     Args:
         hurricane_intensity (int): Hurricane category (1-5)
-        include_resource_allocation (bool): Whether to include resource allocation recommendations
-        
+
     Returns:
-        dict: Prioritized evacuation list with risk scores and resource recommendations
+        dict: A prioritized list of high-risk locations.
     """
     try:
         # Get data from state
-        census_data = tool_context.state.get("census_tracts", {})
         flood_data = tool_context.state.get("flood_risk_data", {})
-        hurricane_data = tool_context.state.get("hurricane_data", {})
-        
-        census_tracts = census_data.get("tracts", [])
         flood_events = flood_data.get("historical_events", [])
-        
-        if not census_tracts:
+
+        if not flood_events:
             return {
                 "status": "error",
-                "message": "No census tract data available. Call get_census_tracts_in_area first."
+                "message": "No flood risk data available. Call get_flood_risk_data first."
             }
-        
-        # Calculate flood history severity for each location
-        flood_severity_map = {}
+
+        prioritized_locations = []
         for event in flood_events:
-            lat = event.get("latitude")
-            lng = event.get("longitude")
-            if lat and lng:
-                key = f"{round(lat, 1)},{round(lng, 1)}"  # Round to 0.1 degree grid
-                severity = event.get("precipitation_inches", 0)
-                flood_severity_map[key] = max(flood_severity_map.get(key, 0), severity)
-        
-        # Calculate risk score for each census tract
-        prioritized_tracts = []
-        for tract in census_tracts:
-            lat = tract.get("latitude")
-            lng = tract.get("longitude")
-            
-            # Find nearest flood history
-            flood_history_score = 0
-            if lat and lng:
-                key = f"{round(lat, 1)},{round(lng, 1)}"
-                flood_history_score = flood_severity_map.get(key, 0) / 10.0  # Normalize to 0-1
-            
-            # Calculate risk score components
-            elderly_score = (tract.get("elderly_percentage", 0) / 100.0) * 0.3  # 30% weight
-            flood_score = min(flood_history_score, 1.0) * 0.4  # 40% weight
-            hurricane_score = (hurricane_intensity / 5.0) * 0.3  # 30% weight
-            
-            total_risk_score = (elderly_score + flood_score + hurricane_score) * 10  # Scale to 0-10
-            
-            # Determine evacuation priority
-            if total_risk_score >= 7.0:
-                priority = "IMMEDIATE"
-            elif total_risk_score >= 5.0:
-                priority = "HIGH"
-            elif total_risk_score >= 3.0:
-                priority = "MEDIUM"
-            else:
-                priority = "LOW"
-            
-            # Calculate special needs (estimate 10% of elderly need medical transport)
-            elderly_pop = tract.get("elderly_population", 0)
-            special_needs_count = int(elderly_pop * 0.1)
-            
-            prioritized_tracts.append({
-                "geo_id": tract.get("geo_id"),
-                "total_population": tract.get("total_population"),
-                "elderly_population": elderly_pop,
-                "elderly_percentage": tract.get("elderly_percentage"),
-                "risk_score": round(total_risk_score, 2),
-                "evacuation_priority": priority,
-                "special_needs": special_needs_count,
-                "flood_history_severity": round(flood_history_score * 10, 2),
-                "latitude": lat,
-                "longitude": lng,
-                "poverty_rate": tract.get("poverty_rate", 0)
-            })
-        
+            # Risk score is based on historical precipitation and current hurricane intensity
+            flood_score = (event.get("precipitation_inches", 0) / 10.0) * 0.6  # 60% weight
+            hurricane_score = (hurricane_intensity / 5.0) * 0.4  # 40% weight
+            total_risk_score = (flood_score + hurricane_score) * 10  # Scale to 0-10
+
+            if total_risk_score > 5:
+                prioritized_locations.append({
+                    "latitude": event.get("latitude"),
+                    "longitude": event.get("longitude"),
+                    "risk_score": round(total_risk_score, 2),
+                    "details": {
+                        "historical_precipitation_inches": event.get("precipitation_inches"),
+                        "last_event_date": event.get("date")
+                    }
+                })
+
         # Sort by risk score (highest first)
-        prioritized_tracts.sort(key=lambda x: x["risk_score"], reverse=True)
-        
-        # Calculate resource allocation if requested
-        resource_allocation = None
-        if include_resource_allocation:
-            total_population = sum(t["total_population"] for t in prioritized_tracts[:20])  # Top 20 tracts
-            total_special_needs = sum(t["special_needs"] for t in prioritized_tracts[:20])
-            
-            # Estimate resources (simplified formulas)
-            medical_transport = max(int(total_special_needs / 50), 10)  # 1 vehicle per 50 people
-            emergency_shelters = max(int(total_population / 5000), 5)  # 1 shelter per 5000 people
-            first_responders = max(int(total_population / 1000), 50)  # 1 responder per 1000 people
-            
-            resource_allocation = {
-                "medical_transport_vehicles": medical_transport,
-                "emergency_shelters_needed": emergency_shelters,
-                "shelter_capacity_required": total_population,
-                "first_responders_needed": first_responders,
-                "special_needs_population": total_special_needs
-            }
-        
+        prioritized_locations.sort(key=lambda x: x["risk_score"], reverse=True)
+
         # Save to state
         tool_context.state["evacuation_priority"] = {
-            "prioritized_tracts": prioritized_tracts,
-            "resource_allocation": resource_allocation,
+            "prioritized_locations": prioritized_locations,
             "hurricane_intensity": hurricane_intensity,
             "timestamp": datetime.now().isoformat()
         }
-        
-        logger.info(f"Calculated evacuation priority for {len(prioritized_tracts)} census tracts")
-        
+
+        logger.info(f"Calculated evacuation priority for {len(prioritized_locations)} high-risk locations.")
+
         return {
             "status": "success",
             "data": {
-                "prioritized_tracts": prioritized_tracts[:20],  # Return top 20
-                "total_tracts_analyzed": len(prioritized_tracts),
-                "resource_allocation": resource_allocation,
-                "summary": f"Analyzed {len(prioritized_tracts)} census tracts. Top priority: {prioritized_tracts[0]['geo_id']} with risk score {prioritized_tracts[0]['risk_score']}/10"
+                "prioritized_locations": prioritized_locations[:20],  # Return top 20
+                "total_locations_analyzed": len(prioritized_locations),
+                "summary": f"Identified {len(prioritized_locations)} high-risk locations based on flood data."
             }
         }
     

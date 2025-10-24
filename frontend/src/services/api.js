@@ -6,7 +6,8 @@ const AGENT_PORTS = {
   forecast: 8082,
   risk: 8083,
   emergency: 8084,
-  chat: 8090
+  chat: 8090,
+  hurricane: 8085
 };
 
 const SESSION_STORAGE_KEY = 'weather_agent_session_id';
@@ -52,6 +53,11 @@ class WeatherAgentAPI {
         baseURL: getBaseUrl('chat', AGENT_PORTS.chat),
         headers: { 'Content-Type': 'application/json' },
         timeout: 60000,
+      }),
+      hurricane: axios.create({
+        baseURL: getBaseUrl('hurricane_simulation', AGENT_PORTS.hurricane),
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 120000, // Longer timeout for image analysis
       }),
     };
 
@@ -665,6 +671,84 @@ class WeatherAgentAPI {
     } catch (error) {
       console.error('[API] Error getting suggested actions:', error);
       return [];
+    }
+  }
+
+  async analyzeHurricaneImage(imageFile) {
+    try {
+      console.log('[API] Analyzing hurricane image...');
+      
+      // Create session first
+      const sessionResponse = await this.clients.hurricane.post('/apps/hurricane_simulation_agent/users/user_001/sessions', {
+        state: {}
+      });
+      const sessionId = sessionResponse.data.id;
+      console.log('[API] Created hurricane session:', sessionId);
+      
+      // Convert image to base64
+      const imageBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          // Extract base64 data (remove data:image/...;base64, prefix)
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(imageFile);
+      });
+      
+      // Determine MIME type
+      const mimeType = imageFile.type || 'image/jpeg';
+      
+      // Call hurricane simulation agent with image
+      const response = await this.clients.hurricane.post('/run', {
+        app_name: 'hurricane_simulation_agent',
+        user_id: 'user_001',
+        session_id: sessionId,
+        new_message: {
+          role: 'user',
+          parts: [
+            { text: 'Analyze this hurricane image and provide evacuation priorities' },
+            { 
+              inlineData: {
+                mimeType: mimeType,
+                data: imageBase64
+              }
+            }
+          ],
+        },
+        streaming: false,
+      });
+
+      console.log('[API] Hurricane analysis response:', response.data);
+
+      // Parse ADK response
+      const data = response.data;
+      let evacuationPlan = null;
+      
+      if (Array.isArray(data) && data.length > 0) {
+        // Get the final step (evacuation plan output)
+        const finalStep = data[data.length - 1];
+        const text = finalStep?.content?.parts?.[0]?.text;
+        
+        if (text) {
+          try {
+            evacuationPlan = JSON.parse(text);
+            console.log('[API] Parsed EvacuationPlan:', evacuationPlan);
+          } catch (e) {
+            console.error('[API] Failed to parse evacuation plan JSON:', e);
+            // Return raw text if JSON parsing fails
+            evacuationPlan = { raw_response: text };
+          }
+        }
+      }
+
+      this.updateSessionTimestamp();
+
+      return evacuationPlan;
+    } catch (error) {
+      console.error('[API] Error analyzing hurricane image:', error);
+      throw new Error(error.response?.data?.message || error.message || 'Failed to analyze hurricane image');
     }
   }
 }

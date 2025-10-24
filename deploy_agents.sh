@@ -18,6 +18,7 @@ AGENT_PATHS=(
     "weather-emergency-resources-agent:agents/emergency_resources_agent"
     "weather-forecast-agent:agents/forecast_agent"
     "weather-risk-analysis-agent:agents/risk_analysis_agent"
+    "weather-hurricane-simulation-agent:agents/hurricane_simulation_agent"
     "weather-chat-agent:agents/chat"
 )
 
@@ -80,7 +81,7 @@ fi
 touch frontend/.env.production
 
 # 4. Loop through and deploy each agent
-for agent_info in "${AGENTS_TO_DEPLOY[@]}"; do
+for agent_info in "${AGENT_PATHS[@]}"; do
     IFS=':' read -r service_name agent_path <<< "$agent_info"
     deploy_agent "$service_name" "$agent_path"
 done

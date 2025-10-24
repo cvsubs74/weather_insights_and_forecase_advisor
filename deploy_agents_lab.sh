@@ -15,6 +15,7 @@ AGENTS_TO_DEPLOY=(
     "weather-emergency-resources-agent:agents/emergency_resources_agent"
     "weather-forecast-agent:agents/forecast_agent"
     "weather-risk-analysis-agent:agents/risk_analysis_agent"
+    "weather-hurricane-simulation-agent:agents/hurricane_simulation_agent"
     "weather-chat-agent:agents/chat"
 )
 

@@ -7,6 +7,7 @@ AGENTS_TO_SYNC=(
     "chat"
     "emergency_resources_agent"
     "forecast_agent"
+    "hurricane_simulation_agent"
     "risk_analysis_agent"
     "risk_analysis_agent_v1"
 )
@@ -32,6 +33,7 @@ kill -9 $(lsof -t -i:8081) 2>/dev/null
 kill -9 $(lsof -t -i:8082) 2>/dev/null
 kill -9 $(lsof -t -i:8083) 2>/dev/null
 kill -9 $(lsof -t -i:8084) 2>/dev/null
+kill -9 $(lsof -t -i:8085) 2>/dev/null
 kill -9 $(lsof -t -i:8090) 2>/dev/null
 kill -9 $(lsof -t -i:8091) 2>/dev/null
 

@@ -20,6 +20,7 @@ const Layout = ({ children }) => {
     { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
     { name: 'Forecast', href: '/forecast', icon: CloudIcon },
     { name: 'Emergency Resources', href: '/emergency-resources', icon: MapPinIcon },
+    { name: 'Hurricane Simulation', href: '/hurricane-simulation', icon: ExclamationTriangleIcon },
   ];
 
   const isActive = (path) => location.pathname === path;

@@ -45,12 +45,19 @@ log-analyzer:
 log-analyzer-dev:
 	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web log_analyzer_agent
 
+hurricane-simulation:
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server hurricane_simulation_agent --allow_origins="*" --port=8085 --log_level=debug >> hurricane_simulation_agent.log 2>&1
+
+hurricane-simulation-dev:
+	PYTHONPATH=$(shell pwd) ../.venv/bin/adk web hurricane_simulation_agent
+
 agents:
 	@echo "Starting all agents in the background..."
 	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server alerts_snapshot_agent --allow_origins="*" --port=8081 --log_level=debug >> alerts_snapshot_agent.log 2>&1 &
 	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server forecast_agent --allow_origins="*" --port=8082 --log_level=debug >> forecast_agent.log 2>&1 &
 	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server risk_analysis_agent --allow_origins="*" --port=8083 --log_level=debug >> risk_analysis_agent.log 2>&1 &
 	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server emergency_resources_agent --allow_origins="*" --port=8084 --log_level=debug >> emergency_resources_agent.log 2>&1 &
+	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server hurricane_simulation_agent --allow_origins="*" --port=8085 --log_level=debug >> hurricane_simulation_agent.log 2>&1 &
 	@PYTHONPATH=$(shell pwd) ../.venv/bin/adk api_server chat --allow_origins="*" --port=8090 --log_level=debug >> chat_agent.log 2>&1 &
 	@echo "All agents are starting. Check the .log files for output."
 
