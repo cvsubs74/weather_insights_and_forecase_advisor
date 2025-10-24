@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from typing import List, Dict, Any, Optional
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
