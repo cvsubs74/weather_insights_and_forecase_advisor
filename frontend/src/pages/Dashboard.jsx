@@ -550,7 +550,6 @@ const Dashboard = () => {
             📍 {location} {alertMarkers.length > 0 && `(${alertMarkers.length} Alert Zone${alertMarkers.length > 1 ? 's' : ''})`}
           </h2>
           <LocationMap 
-            center={mapCenter}
             markers={alertMarkers}
             height="400px" 
           />

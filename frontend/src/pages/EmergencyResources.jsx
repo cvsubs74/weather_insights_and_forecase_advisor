@@ -196,7 +196,6 @@ const EmergencyResources = () => {
               📍 {mapMarkers.length > 0 ? `${mapMarkers.length} Locations Found` : 'Search Area'}
             </h3>
             <LocationMap 
-              center={mapCenter}
               markers={mapMarkers}
               height="450px" 
             />

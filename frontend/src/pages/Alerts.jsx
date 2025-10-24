@@ -169,7 +169,6 @@ const Alerts = () => {
               📍 Alert Zones ({alertMarkers.length})
             </h3>
             <LocationMap 
-              center={mapCenter}
               markers={alertMarkers}
               height="450px" 
             />

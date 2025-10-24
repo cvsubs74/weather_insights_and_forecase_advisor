@@ -17,7 +17,6 @@ const HurricaneSimulation = () => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [error, setError] = useState(null);
   const [mapMarkers, setMapMarkers] = useState([]);
-  const [mapCenter, setMapCenter] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleImageSelect = (event) => {
@@ -61,16 +60,10 @@ const HurricaneSimulation = () => {
         }));
         setMapMarkers(markers);
         
-        // Set map center to the first (highest priority) location
-        if (markers.length > 0) {
-          setMapCenter([markers[0].lat, markers[0].lng]);
-        }
-        
         console.log(`[HurricaneSimulation] Created ${markers.length} map markers from evacuation plan`);
       } else {
         console.log('[HurricaneSimulation] No prioritized locations in evacuation plan:', result);
         setMapMarkers([]);
-        setMapCenter(null);
       }
     } catch (err) {
       console.error('[HurricaneSimulation] Analysis error:', err);
@@ -105,7 +98,6 @@ const HurricaneSimulation = () => {
     setAnalysisResult(null);
     setError(null);
     setMapMarkers([]);
-    setMapCenter(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -258,7 +250,6 @@ const HurricaneSimulation = () => {
               <div className="space-y-4">
                 {/* Interactive Map */}
                 <LocationMap 
-                  center={mapCenter}
                   markers={mapMarkers}
                   height="450px" 
                 />

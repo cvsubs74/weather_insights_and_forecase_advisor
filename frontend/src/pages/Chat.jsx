@@ -349,7 +349,6 @@ const Chat = () => {
                           📍 {message.mapMarkers.length} Location{message.mapMarkers.length > 1 ? 's' : ''} Found
                         </div>
                         <LocationMap 
-                          center={message.mapCenter}
                           markers={message.mapMarkers}
                           height="350px" 
                         />

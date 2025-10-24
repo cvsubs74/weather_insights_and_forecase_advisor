@@ -1,6 +1,10 @@
 import os
-import logging
 from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+import logging
 from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
@@ -10,8 +14,6 @@ from .tools.tools import (
     calculate_evacuation_priority
 )
 from .tools.logging_utils import log_agent_entry, log_agent_exit
-
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +51,7 @@ class EvacuationPlan(BaseModel):
 # Hurricane Image Analysis Agent
 hurricane_image_analysis_agent = LlmAgent(
     name="hurricane_image_analysis_agent",
-    model=os.getenv("MODEL"),
+    model="gemini-2.5-flash",
     description="Analyzes hurricane images to extract key data.",
     instruction="""
     Analyze the provided hurricane image to extract its category, affected states, and geographic bounding box.
@@ -69,52 +71,28 @@ hurricane_image_analysis_agent = LlmAgent(
 # Evacuation Coordinator Agent (Simplified for this workflow)
 evacuation_coordinator_agent = LlmAgent(
     name="evacuation_coordinator_agent",
-    model=os.getenv("MODEL"),
+    model="gemini-2.5-flash",
     description="Orchestrates hurricane evacuation priority analysis.",
-    instruction="""
-    Coordinate evacuation priority analysis using hurricane and flood risk data.
-    
-    **Your Workflow:**
-    1.  Use the `hurricane_data` from the state to call `get_flood_risk_data` for each affected state.
-    2.  Once the flood data is available, call `calculate_evacuation_priority` with the hurricane intensity.
-    3.  **CRITICAL**: Synthesize the tool responses into the EvacuationPlan output schema format.
-    
-    **Output Schema Requirements:**
-    You MUST return data in this exact format:
-    - `prioritized_locations`: MUST be a LIST extracted from calculate_evacuation_priority tool's data.prioritized_locations
-    - `affected_states`: Get from hurricane_data in state (as a list)
-    - `hurricane_category`: Get from hurricane_data in state (as integer)
-    - `total_high_risk_locations`: Count of prioritized_locations (as integer)
-    - `highest_risk_score`: Maximum risk_score from prioritized_locations (as float)
-    - `insights`: Your analysis and recommendations as a structured object (as dict)
-    
-    **CRITICAL: prioritized_locations MUST be a list, even if there's only one location.**
-    **Do NOT return raw tool responses. Transform the tool data into the final schema.**
-    
-    **Example Output Format:**
-    ```json
-    {
-        "prioritized_locations": [
-            {
-                "latitude": 35.35,
-                "longitude": -89.867,
-                "risk_score": 7.5,
-                "details": {"historical_precipitation_inches": 8.2, "last_event_date": "2024-09-15"}
-            }
-        ],
-        "affected_states": ["FL", "GA"],
-        "hurricane_category": 3,
-        "total_high_risk_locations": 15,
-        "highest_risk_score": 8.5,
-        "insights": {
-            "geographic_distribution": "Analysis of where high-risk areas are concentrated",
-            "risk_patterns": "Patterns observed in risk scores",
-            "evacuation_recommendations": "Specific recommendations for evacuation timing and priorities",
-            "resource_allocation": "Recommendations for emergency resources"
-        }
-    }
-    ```
-    """,
+    instruction="""Coordinate evacuation priority analysis using hurricane and flood risk data.
+
+Your Workflow:
+1. Use the hurricane_data from the state to call get_flood_risk_data for each affected state.
+2. Once the flood data is available, call calculate_evacuation_priority with the hurricane intensity.
+3. CRITICAL: Synthesize the tool responses into the EvacuationPlan output schema format.
+
+Output Schema Requirements:
+You MUST return data in this exact format:
+- prioritized_locations: MUST be a LIST extracted from calculate_evacuation_priority tool data.prioritized_locations
+- affected_states: Get from hurricane_data in state as a list
+- hurricane_category: Get from hurricane_data in state as integer
+- total_high_risk_locations: Count of prioritized_locations as integer
+- highest_risk_score: Maximum risk_score from prioritized_locations as float
+- insights: Your analysis and recommendations as a structured object as dict
+
+CRITICAL: prioritized_locations MUST be a list, even if there is only one location.
+Do NOT return raw tool responses. Transform the tool data into the final schema.
+
+The insights should include geographic_distribution, risk_patterns, evacuation_recommendations, and resource_allocation as string fields.""",
     tools=[
         get_flood_risk_data,
         calculate_evacuation_priority

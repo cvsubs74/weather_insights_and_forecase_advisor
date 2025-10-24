@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -21,45 +21,44 @@ const redIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-// Component to handle map view changes
-function ChangeView({ center, zoom }) {
+// Component to handle map view changes and bounds fitting
+function MapController({ center, zoom, markers }) {
   const map = useMap();
+  
   useEffect(() => {
-    map.setView(center, zoom);
-  }, [center, zoom, map]);
+    if (markers && markers.length > 1) {
+      // If we have multiple markers, fit bounds to show all markers
+      const bounds = L.latLngBounds(markers.map(marker => [marker.lat, marker.lng]));
+      map.fitBounds(bounds, { 
+        padding: [20, 20], // Add padding around the bounds
+        maxZoom: 12 // Don't zoom in too much
+      });
+    } else if (markers && markers.length === 1) {
+      // Single marker - center on it with reasonable zoom
+      map.setView([markers[0].lat, markers[0].lng], 10);
+    } else if (center) {
+      // Fallback to provided center and zoom
+      map.setView(center, zoom);
+    }
+  }, [center, zoom, markers, map]);
+  
   return null;
 }
 
 const LocationMap = ({ center, markers = [], height = '450px' }) => {
-  const [mapCenter, setMapCenter] = useState(center || [37.7749, -122.4194]); // Default to SF
-  const [mapZoom, setMapZoom] = useState(12);
-
-  useEffect(() => {
-    if (center) {
-      setMapCenter(center);
-    } else if (markers && markers.length > 0) {
-      // Center on first marker if no center provided
-      const firstMarker = markers[0];
-      setMapCenter([firstMarker.lat, firstMarker.lng]);
-    }
-
-    // Adjust zoom based on number of markers
-    if (markers && markers.length > 5) {
-      setMapZoom(11);
-    } else if (markers && markers.length > 0) {
-      setMapZoom(12);
-    }
-  }, [center, markers]);
+  // Default center - will be overridden by MapController based on markers
+  const defaultCenter = center || [37.7749, -122.4194]; // Default to SF
+  const defaultZoom = 12;
 
   return (
     <div style={{ height, width: '100%' }} className="rounded-lg overflow-hidden shadow-md">
       <MapContainer
-        center={mapCenter}
-        zoom={mapZoom}
+        center={defaultCenter}
+        zoom={defaultZoom}
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom={true}
       >
-        <ChangeView center={mapCenter} zoom={mapZoom} />
+        <MapController center={center} zoom={defaultZoom} markers={markers} />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
