@@ -44,7 +44,4 @@ make clean-logs
 echo "Starting all agent API servers..."
 make agents
 
-# The `make agents` target does not include the log analyzer, so start it separately
-PYTHONPATH=$(pwd) ../.venv/bin/adk api_server log_analyzer_agent --allow_origins="*" --port=8091 >> log_analyzer_agent.log 2>&1 &
-echo "Log Analyzer Agent started on port 8091."
 

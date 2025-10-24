@@ -36,6 +36,8 @@ if [ ! -f ".env.production" ]; then
 fi
 
 # 4. Build the React application
+echo "Clearing build cache to ensure fresh build..."
+rm -rf node_modules/.cache
 echo "Building React application for production..."
 npm run build
 

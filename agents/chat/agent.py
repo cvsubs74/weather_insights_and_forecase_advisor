@@ -1,10 +1,37 @@
 from google.adk.agents import LlmAgent
+from google.adk.tools.agent_tool import AgentTool
 # Import the actual workflow agents
-from alerts_snapshot_agent.agent import root_agent as alerts_workflow
-from forecast_agent.agent import root_agent as forecast_workflow
-from risk_analysis_agent.agent import root_agent as risk_workflow
-from emergency_resources_agent.agent import root_agent as emergency_workflow
-from .tools.agent_tool import AgentTool
+from .sub_agents.alerts_snapshot_agent.agent import alerts_snapshot_workflow
+from .sub_agents.forecast_agent.agent import forecast_workflow
+from .sub_agents.risk_analysis_agent.agent import risk_analysis_workflow
+from .sub_agents.emergency_resources_agent.agent import emergency_resources_workflow
+
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Callback functions for agent lifecycle logging
+def log_agent_entry(callback_context, llm_request):
+    """Logs when an agent is about to be executed."""
+    logger.info("="*80)
+    logger.info(f"🔄 AGENT ENTRY / TRANSFER: {callback_context.agent_name}")
+    logger.info("="*80)
+
+def log_agent_exit(callback_context, llm_response):
+    """Logs when an agent has finished execution."""
+    logger.info("="*80)
+    logger.info(f"✅ AGENT EXIT: {callback_context.agent_name}")
+    # Optionally log the type of response (e.g., function call)
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if part.function_call:
+                logger.info(f"   ↪️ Suggested Action: Call tool '{part.function_call.name}'")
+    logger.info("="*80)
 
 # Chat Orchestrator - Routes to workflow agents
 chat_orchestrator = LlmAgent(
@@ -42,10 +69,10 @@ chat_orchestrator = LlmAgent(
     - Pass the user's query directly to the selected workflow
     """,
     tools=[
-        AgentTool(alerts_workflow),
+        AgentTool(alerts_snapshot_workflow),
         AgentTool(forecast_workflow),
-        AgentTool(risk_workflow),
-        AgentTool(emergency_workflow),
+        AgentTool(risk_analysis_workflow),
+        AgentTool(emergency_resources_workflow),
     ],
     output_key="final_response",
 )

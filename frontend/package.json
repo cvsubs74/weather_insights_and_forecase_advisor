@@ -25,7 +25,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "cross-env NODE_ENV=production react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -50,7 +50,8 @@
   "devDependencies": {
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.18"
+    "tailwindcss": "^3.4.18",
+    "cross-env": "^7.0.3"
   },
   "description": "Multi-agent weather insights frontend - connects to specialized agents on ports 8081-8090"
 }

@@ -5,25 +5,18 @@
 set -e
 
 # --- Configuration ---
-# Get project ID and region from gcloud config
-PROJECT_ID=$(gcloud config get-value project)
-REGION=$(gcloud config get-value run/region 2>/dev/null || echo "us-central1")
+PROJECT_ID=${GOOGLE_CLOUD_PROJECT:-"qwiklabs-gcp-00-a9c5a88b38c5"}
+REGION=${GOOGLE_CLOUD_LOCATION:-"us-central1"}
 
-# Define the path for the production environment file
-ENV_FILE="frontend/.env.production"
-
-# Array of agent service names and their paths
-AGENT_PATHS=(
+# List of agents to deploy
+# Format: "<service-name>:<path-to-agent-directory>"
+AGENTS_TO_DEPLOY=(
     "weather-alerts-snapshot-agent:agents/alerts_snapshot_agent"
     "weather-emergency-resources-agent:agents/emergency_resources_agent"
     "weather-forecast-agent:agents/forecast_agent"
     "weather-risk-analysis-agent:agents/risk_analysis_agent"
     "weather-chat-agent:agents/chat"
 )
-
-# Clean up previous environment file to ensure a fresh start
-echo "Appending to existing environment file: $ENV_FILE..."
-# rm -f "$ENV_FILE"
 
 # --- Helper Functions ---
 check_command() {
@@ -56,8 +49,8 @@ deploy_agent() {
     
     # Store URL for frontend .env file
     local env_var_name=$(echo "$service_name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')_URL
-    echo "REACT_APP_$env_var_name=$service_url" >> "$ENV_FILE"
-    echo "Exported $env_var_name to $ENV_FILE"
+    echo "REACT_APP_$env_var_name=$service_url" >> frontend/.env.production
+    echo "Exported $env_var_name to frontend/.env.production"
     echo ""
 }
 

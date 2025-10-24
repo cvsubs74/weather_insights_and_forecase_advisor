@@ -1,3 +1,4 @@
+# This file makes the tools directory a Python package.
 from .tools import (
     query_historical_weather,
     get_weather_statistics,
