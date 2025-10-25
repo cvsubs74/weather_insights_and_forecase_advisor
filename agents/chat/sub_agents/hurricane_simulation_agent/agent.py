@@ -9,11 +9,11 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from google.genai import types
-from .tools.tools import (
+from ...tools.tools import (
     get_flood_risk_data,
     calculate_evacuation_priority
 )
-from .tools.logging_utils import log_agent_entry, log_agent_exit
+from ...tools.logging_utils import log_agent_entry, log_agent_exit
 
 # Configure logging
 logging.basicConfig(
@@ -102,54 +102,13 @@ The insights should include geographic_distribution, risk_patterns, evacuation_r
     after_model_callback=log_agent_exit
 )
 
-# Evacuation Plan Formatter Agent
-evacuation_plan_formatter = LlmAgent(
-    name="evacuation_plan_formatter",
-    model="gemini-2.5-flash-lite",
-    description="Formats the evacuation data into the final EvacuationPlan schema.",
-    instruction="""
-    You are a data formatting specialist. Your task is to convert the state data into the final EvacuationPlan schema.
-    
-    **Your Task:**
-    1. Extract hurricane data from `state['hurricane_data']`
-    2. Extract evacuation data from `state['evacuation_plan']`
-    3. Format everything into the EvacuationPlan schema with proper structure
-    
-    **Critical Requirements:**
-    - prioritized_locations: MUST be a list of EvacuationPriority objects
-    - affected_states: List of state codes from hurricane_data
-    - hurricane_category: Integer from hurricane_data
-    - total_high_risk_locations: Count of prioritized_locations
-    - highest_risk_score: Maximum risk_score from prioritized_locations
-    - insights: Dictionary with structured analysis including:
-      * geographic_distribution: String describing location spread
-      * risk_patterns: String describing risk distribution patterns
-      * evacuation_recommendations: String with actionable recommendations
-      * resource_allocation: String with resource deployment suggestions
-    
-    **Data Transformation:**
-    - Ensure all numeric fields are properly typed (int/float)
-    - Validate that prioritized_locations is always a list
-    - Create meaningful insights based on the data patterns
-    - Include proper error handling for missing data
-    
-    Return the properly formatted EvacuationPlan object.
-    """,
-    output_schema=EvacuationPlan,
-    output_key="final_evacuation_plan",
-    before_model_callback=log_agent_entry,
-    after_model_callback=log_agent_exit
-)
-
 # Hurricane Simulation Sequential Agent
-HurricaneSimulationAgent = SequentialAgent(
+hurricane_analysis_workflow = SequentialAgent(
     name="HurricaneSimulationAgent",
-    description="A sequential agent that analyzes a hurricane image, coordinates evacuation analysis, and formats the final plan.",
+    description="A sequential agent that analyzes a hurricane image and then coordinates an evacuation plan.",
     sub_agents=[
         hurricane_image_analysis_agent,
-        evacuation_coordinator_agent,
-        evacuation_plan_formatter
+        evacuation_coordinator_agent
     ],
 )
 
-root_agent = HurricaneSimulationAgent

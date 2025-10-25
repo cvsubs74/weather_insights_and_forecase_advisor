@@ -2,6 +2,6 @@ REACT_APP_WEATHER_ALERTS_SNAPSHOT_AGENT_URL=https://weather-alerts-snapshot-agen
 REACT_APP_WEATHER_EMERGENCY_RESOURCES_AGENT_URL=https://weather-emergency-resources-agent-juqzb7sbxa-uc.a.run.app
 REACT_APP_WEATHER_FORECAST_AGENT_URL=https://weather-forecast-agent-juqzb7sbxa-uc.a.run.app
 REACT_APP_WEATHER_RISK_ANALYSIS_AGENT_URL=https://weather-risk-analysis-agent-juqzb7sbxa-uc.a.run.app
-REACT_APP_WEATHER_CHAT_AGENT_URL=https://weather-chat-agent-juqzb7sbxa-uc.a.run.app
 REACT_APP_WEATHER_HURRICANE_SIMULATION_AGENT_URL=https://weather-hurricane-simulation-agent-juqzb7sbxa-uc.a.run.app
+REACT_APP_WEATHER_CHAT_AGENT_URL=https://weather-chat-agent-juqzb7sbxa-uc.a.run.app
 GOOGLE_MAPS_API_KEY=AIzaSyDxJlK8EOBpR7HhAKQ8HLRfpETJ2ngMEDo

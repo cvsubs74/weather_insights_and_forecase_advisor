@@ -32,7 +32,7 @@ class WeatherAgentAPI {
       alerts: axios.create({
         baseURL: getBaseUrl('alerts_snapshot', AGENT_PORTS.alerts),
         headers: { 'Content-Type': 'application/json' },
-        timeout: 60000,
+        timeout: 300000, // 5 minutes - increased for zone coordinate processing
       }),
       forecast: axios.create({
         baseURL: getBaseUrl('forecast', AGENT_PORTS.forecast),
@@ -57,7 +57,7 @@ class WeatherAgentAPI {
       hurricane: axios.create({
         baseURL: getBaseUrl('hurricane_simulation', AGENT_PORTS.hurricane),
         headers: { 'Content-Type': 'application/json' },
-        timeout: 120000, // Longer timeout for image analysis
+        timeout: 300000, // 5 minutes - increased for image analysis and evacuation priority calculations
       }),
     };
 

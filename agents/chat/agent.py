@@ -5,6 +5,7 @@ from .sub_agents.alerts_snapshot_agent.agent import alerts_snapshot_workflow
 from .sub_agents.forecast_agent.agent import forecast_workflow
 from .sub_agents.risk_analysis_agent.agent import risk_analysis_workflow
 from .sub_agents.emergency_resources_agent.agent import emergency_resources_workflow
+from .sub_agents.hurricane_simulation_agent.agent import hurricane_analysis_workflow
 
 import logging
 
@@ -62,6 +63,10 @@ chat_orchestrator = LlmAgent(
       Keywords: shelter, hospital, evacuation route, emergency facility, find resources
       Example: "Find shelters near Miami"
     
+    - **Hurricane Analysis/Image Processing** → hurricane_simulation_pipeline
+      Keywords: hurricane, image, analyze, satellite, storm, evacuation priority, hurricane category
+      Example: "Analyze this hurricane satellite image" or "What's the evacuation priority for this storm?"
+    
     **IMPORTANT:**
     - Delegate immediately to the appropriate workflow
     - Each workflow will handle the complete multi-step process
@@ -73,6 +78,7 @@ chat_orchestrator = LlmAgent(
         AgentTool(forecast_workflow),
         AgentTool(risk_analysis_workflow),
         AgentTool(emergency_resources_workflow),
+        AgentTool(hurricane_analysis_workflow),
     ],
     output_key="final_response",
 )

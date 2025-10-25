@@ -32,6 +32,15 @@ const Dashboard = () => {
   const [selectedFilter, setSelectedFilter] = useState(() => {
     return localStorage.getItem('dashboardFilter') || '';
   });
+  const [selectedState, setSelectedState] = useState(() => {
+    const saved = localStorage.getItem('dashboardSelectedState');
+    return saved || '';
+  });
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [stateSearchTerm, setStateSearchTerm] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState(() => {
+    return localStorage.getItem('dashboardSelectedRegion') || 'National';
+  });
   const [alertMarkers, setAlertMarkers] = useState(() => {
     const saved = localStorage.getItem('dashboardMarkers');
     return saved ? JSON.parse(saved) : [];
@@ -84,11 +93,39 @@ const Dashboard = () => {
   }, [alerts]);
 
   useEffect(() => {
-    // Don't auto-load alerts on mount - wait for user selection
-    // Load severe weather events on mount only if not in localStorage
-    const savedEvents = localStorage.getItem('dashboardSevereEvents');
-    if (!savedEvents || savedEvents === '[]') {
-      loadSevereWeatherEvents();
+    localStorage.setItem('dashboardSelectedState', selectedState);
+  }, [selectedState]);
+
+  useEffect(() => {
+    localStorage.setItem('dashboardSelectedRegion', selectedRegion);
+  }, [selectedRegion]);
+
+  useEffect(() => {
+    // Auto-load national alerts on mount - only run once
+    const hasLoadedInitial = sessionStorage.getItem('dashboardInitialLoad');
+    
+    if (!hasLoadedInitial) {
+      sessionStorage.setItem('dashboardInitialLoad', 'true');
+      
+      const savedAlerts = localStorage.getItem('dashboardAlerts');
+      const savedRegion = localStorage.getItem('dashboardSelectedRegion');
+      
+      if (!savedAlerts || savedAlerts === '[]') {
+        // Default to National search on first load
+        setSelectedRegion('National');
+        setSelectedFilter('region');
+        setLocation('all US states');
+        loadAlerts('all US states');
+      } else if (savedRegion === 'National') {
+        // Maintain National selection if it was previously selected
+        setSelectedRegion('National');
+      }
+      
+      // Load severe weather events on mount
+      const savedEvents = localStorage.getItem('dashboardSevereEvents');
+      if (!savedEvents || savedEvents === '[]') {
+        loadSevereWeatherEvents();
+      }
     }
     
     // Listen for session expiration events
@@ -101,9 +138,12 @@ const Dashboard = () => {
       setAlertMarkers([]);
       setMapCenter([39.8283, -98.5795]);
       setSevereEvents([]);
+      setAlerts([]);
       localStorage.removeItem('dashboardSevereEvents');
-      // Reload severe weather events only
+      localStorage.removeItem('dashboardAlerts');
+      // Reload both severe weather events and national alerts
       loadSevereWeatherEvents();
+      loadNationalSevereAlerts();
     };
     
     window.addEventListener('sessionExpired', handleSessionExpired);
@@ -141,9 +181,41 @@ const Dashboard = () => {
         setAlerts(response.alerts);
         if (response.alerts.length > 0) {
           setAgentResponse(`Found ${response.alerts.length} alerts for ${currentLocation}.`);
+          
+          // Handle map_data with proper structure parsing
           if (response.map_data) {
-            setMapCenter(response.map_data.center);
-            setAlertMarkers(response.map_data.markers);
+            console.log('[Dashboard] Location-specific map data:', response.map_data);
+            
+            // Set map center if available
+            if (response.map_data.center) {
+              const newCenter = [response.map_data.center.lat, response.map_data.center.lng];
+              console.log('[Dashboard] Setting map center to:', newCenter);
+              setMapCenter(newCenter);
+            } else {
+              console.log('[Dashboard] No map center in response, keeping current center');
+            }
+            
+            // Handle markers with flexible structure parsing
+            let markers = [];
+            if (response.map_data.markers && Array.isArray(response.map_data.markers) && response.map_data.markers.length > 0) {
+              markers = response.map_data.markers;
+              console.log('[Dashboard] Using location-specific markers array:', markers);
+            } else if (typeof response.map_data === 'object' && Object.keys(response.map_data).length > 0) {
+              // Handle object structure like {location: {lat, lng, ...}}
+              markers = Object.entries(response.map_data)
+                .filter(([key, value]) => key !== 'center' && key !== 'zoom' && key !== 'map_url')
+                .map(([location, data]) => ({
+                  lat: data.lat || 39.8283,
+                  lng: data.lng || -98.5795,
+                  title: location,
+                  address: data.address || ''
+                }));
+              console.log('[Dashboard] Using location-specific map data object:', markers);
+            }
+            setAlertMarkers(markers);
+          } else {
+            // No map data, clear markers
+            setAlertMarkers([]);
           }
         } else {
           setAgentResponse(`No active alerts found for ${currentLocation}.`);
@@ -151,9 +223,33 @@ const Dashboard = () => {
         }
       } else {
         setAgentResponse(response?.content || `No active alerts found for ${currentLocation}.`);
+        
+        // Handle map_data even when no structured alerts
         if (response.map_data) {
-          setMapCenter(response.map_data.center);
-          setAlertMarkers(response.map_data.markers);
+          console.log('[Dashboard] Location-specific map data (no alerts):', response.map_data);
+          
+          if (response.map_data.center) {
+            const newCenter = [response.map_data.center.lat, response.map_data.center.lng];
+            console.log('[Dashboard] Setting map center (no alerts) to:', newCenter);
+            setMapCenter(newCenter);
+          }
+          
+          let markers = [];
+          if (response.map_data.markers && Array.isArray(response.map_data.markers)) {
+            markers = response.map_data.markers;
+          } else if (typeof response.map_data === 'object') {
+            markers = Object.entries(response.map_data)
+              .filter(([key, value]) => key !== 'center' && key !== 'zoom' && key !== 'map_url')
+              .map(([location, data]) => ({
+                lat: data.lat || 39.8283,
+                lng: data.lng || -98.5795,
+                title: location,
+                address: data.address || ''
+              }));
+          }
+          setAlertMarkers(markers);
+        } else {
+          setAlertMarkers([]);
         }
       }
     } catch (error) {
@@ -296,6 +392,110 @@ const Dashboard = () => {
     return events.slice(0, 6);
   };
 
+  const loadNationalSevereAlerts = async () => {
+    if (loading) return;
+    
+    setLoading(true);
+    
+    // Set a timeout to prevent indefinite loading
+    const timeoutId = setTimeout(() => {
+      console.log('[Dashboard] National alerts loading timeout - falling back to major states');
+      setLoading(false);
+    }, 75000); // 75 second timeout
+    
+    try {
+      console.log('[Dashboard] Loading national severe alerts...');
+      
+      // Try different location formats to get national alerts
+      // Start with major regions/states that are likely to have alerts
+      let response = null;
+      const locationOptions = [
+        'United States', // Try national first since we optimized it
+        'Florida', 'Texas', 'California', 'Louisiana', 'North Carolina'
+      ];
+      
+      for (const location of locationOptions) {
+        try {
+          console.log(`[Dashboard] Trying location: ${location}`);
+          response = await api.getAlerts(location);
+          if (response && response.alerts && response.alerts.length > 0) {
+            console.log(`[Dashboard] Success with location: ${location}, found ${response.alerts.length} alerts`);
+            break;
+          }
+        } catch (err) {
+          console.log(`[Dashboard] Failed with location ${location}:`, err.message);
+          continue;
+        }
+      }
+      
+      clearTimeout(timeoutId); // Clear timeout if we succeed
+      
+      if (response && response.alerts && response.alerts.length > 0) {
+        console.log('[Dashboard] Raw alerts response:', response.alerts);
+        
+        // Sort alerts by severity and take top 3
+        const sortedAlerts = response.alerts.sort((a, b) => {
+          const severityOrder = { 'Extreme': 4, 'Severe': 3, 'Moderate': 2, 'Minor': 1, 'Unknown': 0 };
+          const aSeverity = severityOrder[a.severity] || 0;
+          const bSeverity = severityOrder[b.severity] || 0;
+          console.log(`[Dashboard] Comparing ${a.event} (${a.severity}=${aSeverity}) vs ${b.event} (${b.severity}=${bSeverity})`);
+          return bSeverity - aSeverity;
+        });
+        
+        const topAlerts = sortedAlerts.slice(0, 3);
+        setAlerts(topAlerts);
+        
+        // Use map_data markers if available, otherwise create default markers
+        let markers = [];
+        if (response.map_data) {
+          console.log('[Dashboard] Map data structure:', response.map_data);
+          
+          // Check if map_data has markers array (new structure)
+          if (response.map_data.markers && Array.isArray(response.map_data.markers) && response.map_data.markers.length > 0) {
+            markers = response.map_data.markers.slice(0, 3); // Limit to top 3 to match alerts
+            console.log('[Dashboard] Using backend map markers array:', markers);
+          } 
+          // Check if map_data is an object with location keys (alternative structure)
+          else if (typeof response.map_data === 'object' && Object.keys(response.map_data).length > 0) {
+            markers = Object.entries(response.map_data).slice(0, 3).map(([location, data]) => ({
+              lat: data.lat || 39.8283,
+              lng: data.lng || -98.5795,
+              title: location,
+              address: data.address || ''
+            }));
+            console.log('[Dashboard] Using backend map data object:', markers);
+          }
+        }
+        
+        // Fallback: create markers from alerts if no map data
+        if (markers.length === 0) {
+          markers = topAlerts.map((alert, index) => ({
+            lat: 39.8283, // Default center of US
+            lng: -98.5795,
+            title: `${alert.event} - ${alert.severity}`,
+            address: 'Location unavailable'
+          }));
+          console.log('[Dashboard] Using fallback markers (no coordinates):', markers);
+        }
+        
+        setAlertMarkers(markers);
+        
+        console.log(`[Dashboard] Successfully loaded ${topAlerts.length} national severe alerts:`, topAlerts);
+      } else {
+        console.log('[Dashboard] No severe alerts found nationally - response:', response);
+        setAlerts([]);
+        setAlertMarkers([]);
+      }
+    } catch (error) {
+      console.error('[Dashboard] Failed to load national severe alerts:', error);
+      clearTimeout(timeoutId); // Clear timeout on error
+      setAlerts([]);
+      setAlertMarkers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const extractLocation = (text) => {
     // Simple location extraction - look for state names
     const states = ['California', 'Texas', 'Florida', 'New York', 'Arizona', 'Nevada', 'Louisiana'];
@@ -319,12 +519,39 @@ const Dashboard = () => {
     loadAlerts(displayName);
   };
 
-  const handleCustomSearch = (e) => {
-    e.preventDefault();
-    if (location.trim()) {
-      setSelectedFilter('custom');
-      loadAlerts(location);
+  const handleStateSelect = (stateCode) => {
+    setSelectedState(stateCode);
+    setSelectedRegion(''); // Clear region when selecting individual state
+    setIsDropdownOpen(false); // Close dropdown after selection
+  };
+
+  const handleApplyState = () => {
+    if (!selectedState) {
+      setAgentResponse('Please select a state');
+      return;
     }
+    
+    setSelectedRegion(''); // Clear region selection when using custom state
+    setSelectedFilter('state');
+    setLocation(selectedState);
+    setIsDropdownOpen(false); // Close dropdown after applying
+    loadAlerts(selectedState);
+  };
+
+  const handleClearState = () => {
+    setSelectedState('');
+    setSelectedRegion('');
+  };
+
+  const handleSelectRegion = (regionName, regionStates) => {
+    setSelectedRegion(regionName);
+    setSelectedState(''); // Clear individual state selection
+    setIsDropdownOpen(false); // Close dropdown
+    
+    // Trigger immediate search for the region
+    setSelectedFilter('region');
+    setLocation(regionStates);
+    loadAlerts(regionStates);
   };
 
   const handleRefresh = () => {
@@ -339,15 +566,18 @@ const Dashboard = () => {
     localStorage.removeItem('dashboardMarkers');
     localStorage.removeItem('dashboardMapCenter');
     localStorage.removeItem('dashboardSevereEvents');
+    localStorage.removeItem('dashboardAlerts');
     setLocation('');
     setSelectedFilter('');
     setAlertMarkers([]);
     setMapCenter([39.8283, -98.5795]);
     setSevereEvents([]);
+    setAlerts([]);
     setAgentResponse('');
     
-    // Reload severe weather events only
+    // Reload both severe weather events and national alerts
     loadSevereWeatherEvents();
+    loadNationalSevereAlerts();
   };
 
   const quickActions = [
@@ -367,13 +597,58 @@ const Dashboard = () => {
     { name: 'Northeast', value: 'CT,ME,MA,NH,NJ,NY,PA,RI,VT', displayName: 'Northeast US', icon: '🍂' },
   ];
 
-  const popularStates = [
-    { name: 'California', value: 'California', icon: '☀️' },
-    { name: 'Texas', value: 'Texas', icon: '⭐' },
-    { name: 'Florida', value: 'Florida', icon: '🌊' },
-    { name: 'New York', value: 'New York', icon: '🗽' },
-    { name: 'Colorado', value: 'Colorado', icon: '⛰️' },
-    { name: 'Washington', value: 'Washington', icon: '🌲' },
+  const allUSStates = [
+    { code: 'AL', name: 'Alabama', region: 'South' },
+    { code: 'AK', name: 'Alaska', region: 'West' },
+    { code: 'AZ', name: 'Arizona', region: 'West' },
+    { code: 'AR', name: 'Arkansas', region: 'South' },
+    { code: 'CA', name: 'California', region: 'West' },
+    { code: 'CO', name: 'Colorado', region: 'West' },
+    { code: 'CT', name: 'Connecticut', region: 'Northeast' },
+    { code: 'DE', name: 'Delaware', region: 'South' },
+    { code: 'FL', name: 'Florida', region: 'South' },
+    { code: 'GA', name: 'Georgia', region: 'South' },
+    { code: 'HI', name: 'Hawaii', region: 'West' },
+    { code: 'ID', name: 'Idaho', region: 'West' },
+    { code: 'IL', name: 'Illinois', region: 'Midwest' },
+    { code: 'IN', name: 'Indiana', region: 'Midwest' },
+    { code: 'IA', name: 'Iowa', region: 'Midwest' },
+    { code: 'KS', name: 'Kansas', region: 'Midwest' },
+    { code: 'KY', name: 'Kentucky', region: 'South' },
+    { code: 'LA', name: 'Louisiana', region: 'South' },
+    { code: 'ME', name: 'Maine', region: 'Northeast' },
+    { code: 'MD', name: 'Maryland', region: 'South' },
+    { code: 'MA', name: 'Massachusetts', region: 'Northeast' },
+    { code: 'MI', name: 'Michigan', region: 'Midwest' },
+    { code: 'MN', name: 'Minnesota', region: 'Midwest' },
+    { code: 'MS', name: 'Mississippi', region: 'South' },
+    { code: 'MO', name: 'Missouri', region: 'Midwest' },
+    { code: 'MT', name: 'Montana', region: 'West' },
+    { code: 'NE', name: 'Nebraska', region: 'Midwest' },
+    { code: 'NV', name: 'Nevada', region: 'West' },
+    { code: 'NH', name: 'New Hampshire', region: 'Northeast' },
+    { code: 'NJ', name: 'New Jersey', region: 'Northeast' },
+    { code: 'NM', name: 'New Mexico', region: 'West' },
+    { code: 'NY', name: 'New York', region: 'Northeast' },
+    { code: 'NC', name: 'North Carolina', region: 'South' },
+    { code: 'ND', name: 'North Dakota', region: 'Midwest' },
+    { code: 'OH', name: 'Ohio', region: 'Midwest' },
+    { code: 'OK', name: 'Oklahoma', region: 'South' },
+    { code: 'OR', name: 'Oregon', region: 'West' },
+    { code: 'PA', name: 'Pennsylvania', region: 'Northeast' },
+    { code: 'RI', name: 'Rhode Island', region: 'Northeast' },
+    { code: 'SC', name: 'South Carolina', region: 'South' },
+    { code: 'SD', name: 'South Dakota', region: 'Midwest' },
+    { code: 'TN', name: 'Tennessee', region: 'South' },
+    { code: 'TX', name: 'Texas', region: 'South' },
+    { code: 'UT', name: 'Utah', region: 'West' },
+    { code: 'VT', name: 'Vermont', region: 'Northeast' },
+    { code: 'VA', name: 'Virginia', region: 'South' },
+    { code: 'WA', name: 'Washington', region: 'West' },
+    { code: 'WV', name: 'West Virginia', region: 'South' },
+    { code: 'WI', name: 'Wisconsin', region: 'Midwest' },
+    { code: 'WY', name: 'Wyoming', region: 'West' },
+    { code: 'DC', name: 'Washington DC', region: 'South' },
   ];
 
   return (
@@ -434,81 +709,170 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Filter Tabs */}
+      {/* State Selection */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">🌍 View Alerts By:</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900">🌍 Select Region or State for Weather Alerts</h2>
+          {selectedState && (
+            <span className="text-sm text-gray-600 bg-blue-100 px-3 py-1 rounded-full">
+              {allUSStates.find(s => s.code === selectedState)?.name || selectedState}
+            </span>
+          )}
+        </div>
         
-        {/* Region Filters */}
+        {/* Quick Region Selectors */}
         <div className="mb-6">
-          <p className="text-sm font-medium text-gray-700 mb-3">Regions</p>
+          <p className="text-sm font-medium text-gray-700 mb-3">Quick Select by Region:</p>
           <div className="flex flex-wrap gap-2">
-            {regions.map((region) => (
-              <button
-                key={region.name}
-                onClick={() => handleFilterChange('region', region.value)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  selectedFilter === 'region' && location === region.value
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <span className="mr-2">{region.icon}</span>
-                {region.name}
-              </button>
-            ))}
+            {regions.map((region) => {
+              const isSelected = selectedRegion === region.name;
+              return (
+                <button
+                  key={region.name}
+                  onClick={() => handleSelectRegion(region.name, region.value)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    isSelected
+                      ? 'bg-primary text-white ring-2 ring-primary ring-offset-2 shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <span className="mr-2">{region.icon}</span>
+                  {region.name}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* State Filters */}
+        {/* State Single-Select Dropdown */}
         <div className="mb-6">
-          <p className="text-sm font-medium text-gray-700 mb-3">Popular States</p>
-          <div className="flex flex-wrap gap-2">
-            {popularStates.map((state) => (
-              <button
-                key={state.name}
-                onClick={() => handleFilterChange('state', state.name)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  selectedFilter === 'state' && location === state.name
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <span className="mr-2">{state.icon}</span>
-                {state.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Custom Search */}
-        <div>
-          <p className="text-sm font-medium text-gray-700 mb-3">Custom Location</p>
-          <form onSubmit={handleCustomSearch} className="flex gap-3">
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => {
-                setLocation(e.target.value);
-                setSelectedFilter('custom');
-              }}
-              placeholder="Enter any city, state, or zip code"
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
+          <p className="text-sm font-medium text-gray-700 mb-3">Or Select Individual State:</p>
+          <div className="relative">
             <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-blue-900 font-medium disabled:opacity-50"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full px-4 py-3 text-left bg-white border border-gray-300 rounded-lg hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
             >
-              Search
+              <div className="flex items-center justify-between">
+                <span className="text-gray-700">
+                  {!selectedState 
+                    ? 'Select a state...' 
+                    : allUSStates.find(s => s.code === selectedState)?.name || selectedState}
+                </span>
+                <svg
+                  className={`w-5 h-5 text-gray-400 transition-transform ${isDropdownOpen ? 'transform rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </button>
-          </form>
+
+            {/* Dropdown Menu */}
+            {isDropdownOpen && (
+              <div className="absolute z-10 w-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg max-h-96 overflow-hidden">
+                {/* Search Box */}
+                <div className="p-3 border-b border-gray-200 sticky top-0 bg-white">
+                  <input
+                    type="text"
+                    placeholder="Search states..."
+                    value={stateSearchTerm}
+                    onChange={(e) => setStateSearchTerm(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+
+                {/* State List */}
+                <div className="overflow-y-auto max-h-64">
+                  {allUSStates
+                    .filter(state => 
+                      state.name.toLowerCase().includes(stateSearchTerm.toLowerCase()) ||
+                      state.code.toLowerCase().includes(stateSearchTerm.toLowerCase())
+                    )
+                    .map((state) => {
+                      const isSelected = selectedState === state.code;
+                      return (
+                        <button
+                          key={state.code}
+                          onClick={() => handleStateSelect(state.code)}
+                          className={`w-full px-4 py-2.5 text-left hover:bg-gray-50 transition-colors ${
+                            isSelected ? 'bg-blue-50 border-l-4 border-primary' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-medium text-gray-900">{state.name}</div>
+                              <div className="text-xs text-gray-500">{state.code} • {state.region}</div>
+                            </div>
+                            {isSelected && (
+                              <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleApplyState}
+            disabled={loading || !selectedState}
+            className="flex-1 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+          >
+            {loading ? (
+              <>
+                <ArrowPathIcon className="h-5 w-5 mr-2 animate-spin" />
+                Loading Alerts...
+              </>
+            ) : (
+              <>
+                <MagnifyingGlassIcon className="h-5 w-5 mr-2" />
+                Get Alerts for Selected State
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleClearState}
+            disabled={!selectedState}
+            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            Clear
+          </button>
+        </div>
+
+        {/* Selected State Display */}
+        {selectedState && (
+          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+            <p className="text-sm font-medium text-gray-700 mb-2">Selected State:</p>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary text-white">
+                {allUSStates.find(s => s.code === selectedState)?.name || selectedState}
+                <button
+                  onClick={handleClearState}
+                  className="ml-2 hover:bg-blue-900 rounded-full p-0.5"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Active Alerts Section */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Active Alerts{location && agentResponse ? ` - ${location}` : ''}</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {alerts.length > 0 && !location ? '🚨 Severe Weather Alerts' : `Active Alerts${location && agentResponse ? ` - ${location}` : ''}`}
+          </h2>
           <button
             onClick={handleRefresh}
             disabled={loading}
@@ -547,15 +911,16 @@ const Dashboard = () => {
         {/* Weather Context Map with Alert Markers */}
         <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4">
-            📍 {location} {alertMarkers.length > 0 && `(${alertMarkers.length} Alert Zone${alertMarkers.length > 1 ? 's' : ''})`}
+            📍 {location || (alertMarkers && alertMarkers.length > 0 ? 'United States' : 'Select Location')} {alertMarkers && alertMarkers.length > 0 && `(${alertMarkers.length} Alert Zone${alertMarkers.length > 1 ? 's' : ''})`}
           </h2>
           <LocationMap 
             markers={alertMarkers}
+            center={mapCenter}
             height="400px" 
           />
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-gray-700">
-              <strong>💡 Tip:</strong> {alertMarkers.length > 0 ? 'Red markers show areas with active weather alerts. Click markers for location details.' : 'Use the filters above to view alerts by region, state, or custom location.'}
+              <strong>💡 Tip:</strong> {alertMarkers && alertMarkers.length > 0 ? 'Red markers show areas with active weather alerts. Click markers for location details.' : 'Use the filters above to view alerts by region, state, or custom location.'}
               {' '}For emergency resources, use <strong>Emergency Resources</strong> to find shelters or hospitals.
             </p>
           </div>

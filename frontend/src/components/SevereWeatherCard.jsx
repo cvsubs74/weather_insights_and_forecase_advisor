@@ -36,14 +36,10 @@ const SevereWeatherCard = ({ event, onAnalyzeRisk }) => {
             {getEventIcon(event.event)}
             <div className="flex-1">
               <h3 className="font-bold text-lg truncate">{event.event}</h3>
-              <div className="text-sm opacity-90 truncate prose prose-sm prose-invert">
-                <ReactMarkdown
-                  components={{
-                    a: ({node, children, ...props}) => <a {...props} className="text-white underline hover:text-blue-200" target="_blank" rel="noopener noreferrer">{children}</a>,
-                  }}
-                >
-                  {event.headline}
-                </ReactMarkdown>
+              <div className="text-sm opacity-90">
+                <span className="block truncate">
+                  {event.severity} Alert
+                </span>
               </div>
             </div>
           </div>
@@ -52,6 +48,14 @@ const SevereWeatherCard = ({ event, onAnalyzeRisk }) => {
 
       {/* Content */}
       <div className="p-4 space-y-3 flex-grow flex flex-col">
+        {/* Compact headline info */}
+        <div className="text-xs text-gray-500 border-b border-gray-100 pb-2">
+          {event.headline && event.headline.length > 100 ? 
+            `${event.headline.substring(0, 100)}...` : 
+            event.headline
+          }
+        </div>
+        
         <div className="text-gray-700 text-sm prose prose-sm max-w-none flex-grow">
           <ReactMarkdown
             components={{
@@ -62,7 +66,7 @@ const SevereWeatherCard = ({ event, onAnalyzeRisk }) => {
               li: ({node, ...props}) => <p className="text-gray-700 mb-0" {...props} />,
             }}
           >
-            {event.description}
+            {event.description_short || event.description}
           </ReactMarkdown>
         </div>
         

@@ -629,13 +629,20 @@ def get_nws_alerts(
         
         # For large alert sets, only return top critical alerts to prevent timeout
         total_count = len(alerts)
-        if total_count > 20:
+        if total_count > 10:
             # Sort by severity priority: Extreme > Severe > Moderate > Minor
             severity_priority = {"Extreme": 0, "Severe": 1, "Moderate": 2, "Minor": 3, "Unknown": 4}
             alerts.sort(key=lambda x: severity_priority.get(x["severity"], 4))
-            # Keep only top 15 most critical alerts
-            alerts = alerts[:15]
-            logger.info(f"Limiting to top 15 critical alerts out of {total_count} total")
+            
+            # More aggressive limiting for national queries (no state/coords specified)
+            if not state and not latitude and not longitude:
+                # National query - limit to top 5 most critical alerts
+                alerts = alerts[:5]
+                logger.info(f"National query: Limiting to top 5 critical alerts out of {total_count} total")
+            else:
+                # Regional query - limit to top 10 alerts
+                alerts = alerts[:10]
+                logger.info(f"Regional query: Limiting to top 10 alerts out of {total_count} total")
         
         # Save to state
         tool_context.state["alerts"] = {
@@ -655,8 +662,8 @@ def get_nws_alerts(
             "returned_count": len(alerts),
             "severity_breakdown": severity_counts,
             "timestamp": datetime.now().isoformat(),
-            "limited": total_count > 20,
-            "note": f"Showing top {len(alerts)} critical alerts out of {total_count} total" if total_count > 20 else None
+            "limited": total_count > 10,
+            "note": f"Showing top {len(alerts)} critical alerts out of {total_count} total" if total_count > 10 else None
         }
     
     except Exception as e:
@@ -1371,20 +1378,34 @@ def get_flood_risk_data(
                 "longitude": row.longitude,
                 "precipitation_inches": round(row.precipitation, 2) if row.precipitation else 0,
                 "temperature_f": round(row.temperature, 1) if row.temperature else None,
-                "severity": "Major" if row.precipitation and row.precipitation > 10 else "Moderate"
+                "severity": "Major" if row.precipitation and row.precipitation > 10 else "Moderate",
+                "state": state  # Add state to each event for tracking
             })
         
-        # Save to state
+        # ACCUMULATE data across multiple states instead of overwriting
+        existing_data = tool_context.state.get("flood_risk_data", {})
+        existing_events = existing_data.get("historical_events", [])
+        
+        # Combine new events with existing events
+        all_events = existing_events + flood_events
+        
+        # Track which states have been processed
+        processed_states = existing_data.get("processed_states", [])
+        if state not in processed_states:
+            processed_states.append(state)
+        
+        # Save accumulated data to state
         tool_context.state["flood_risk_data"] = {
-            "historical_events": flood_events,
-            "count": len(flood_events),
-            "state": state,
+            "historical_events": all_events,
+            "count": len(all_events),
+            "processed_states": processed_states,
+            "latest_state": state,
             "county": county,
             "timestamp": datetime.now().isoformat(),
             "note": "Based on historical precipitation data. For detailed FEMA flood zones, integrate with National Flood Hazard Layer API."
         }
         
-        logger.info(f"Retrieved {len(flood_events)} historical flood events for {state}")
+        logger.info(f"Retrieved {len(flood_events)} historical flood events for {state}. Total accumulated: {len(all_events)} events across {len(processed_states)} state(s)")
         
         return {
             "status": "success",
@@ -1401,6 +1422,141 @@ def get_flood_risk_data(
         return {
             "status": "error",
             "message": f"Failed to get flood risk data: {str(e)}"
+        }
+
+
+@track_tool_call("get_zone_coordinates")
+def get_zone_coordinates(
+    tool_context: ToolContext,
+    zone_ids: list[str]
+) -> Dict[str, Any]:
+    """Get geographic coordinates for NWS zone IDs.
+    
+    Supports multiple zone types:
+    - Forecast zones (e.g., FLZ069, TXZ123)
+    - County zones (e.g., FLC073, TXC209)
+    - Fire weather zones (e.g., FLZ001)
+    
+    Args:
+        zone_ids (list[str]): List of NWS zone IDs
+        
+    Returns:
+        dict: Coordinates for each zone with status
+    """
+    try:
+        zone_coords = []
+        
+        # Determine zone type based on the third character
+        def get_zone_type(zone_id):
+            """Determine the zone type from the zone ID."""
+            if len(zone_id) < 3:
+                return "forecast"  # Default
+            
+            type_char = zone_id[2].upper()
+            if type_char == 'Z':
+                return "forecast"
+            elif type_char == 'C':
+                return "county"
+            elif type_char == 'F':
+                return "fire"
+            else:
+                return "forecast"  # Default fallback
+        
+        def extract_geometry_centroid(geometry):
+            """Extract centroid from geometry object."""
+            if not geometry:
+                return None
+                
+            geom_type = geometry.get("type")
+            
+            if geom_type == "Polygon":
+                coords = geometry.get("coordinates", [[]])[0]
+                if coords:
+                    lons = [c[0] for c in coords]
+                    lats = [c[1] for c in coords]
+                    return {
+                        "lon": sum(lons) / len(lons),
+                        "lat": sum(lats) / len(lats)
+                    }
+            elif geom_type == "MultiPolygon":
+                # Use first polygon
+                coords = geometry.get("coordinates", [[[]]])[0][0]
+                if coords:
+                    lons = [c[0] for c in coords]
+                    lats = [c[1] for c in coords]
+                    return {
+                        "lon": sum(lons) / len(lons),
+                        "lat": sum(lats) / len(lats)
+                    }
+            
+            return None
+        
+        for zone_id in zone_ids:
+            try:
+                zone_type = get_zone_type(zone_id)
+                
+                # Try different endpoints based on zone type
+                endpoints = [
+                    f"{NWS_API_BASE}/zones/{zone_type}/{zone_id}",
+                    f"{NWS_API_BASE}/zones/forecast/{zone_id}",  # Fallback
+                    f"{NWS_API_BASE}/zones/county/{zone_id}",    # Fallback
+                ]
+                
+                data = None
+                for url in endpoints:
+                    try:
+                        response = requests.get(url, headers=NWS_HEADERS, timeout=10)
+                        if response.status_code == 200:
+                            data = response.json()
+                            break
+                    except:
+                        continue
+                
+                if data:
+                    geometry = data.get("geometry")
+                    centroid = extract_geometry_centroid(geometry)
+                    
+                    if centroid:
+                        zone_coords.append({
+                            "zone_id": zone_id,
+                            "latitude": round(centroid["lat"], 4),
+                            "longitude": round(centroid["lon"], 4),
+                            "name": data.get("properties", {}).get("name", zone_id),
+                            "type": zone_type
+                        })
+                        logger.info(f"Got coordinates for {zone_type} zone {zone_id}: ({centroid['lat']}, {centroid['lon']})")
+                    else:
+                        logger.warning(f"No geometry found for zone {zone_id}")
+                else:
+                    logger.warning(f"Failed to get coordinates for zone {zone_id} from all endpoints")
+                    
+            except Exception as e:
+                logger.error(f"Error getting coordinates for zone {zone_id}: {str(e)}")
+                continue
+        
+        if not zone_coords:
+            return {
+                "status": "error",
+                "message": "Could not get coordinates for any zones"
+            }
+        
+        # Save to state
+        tool_context.state["zone_coordinates"] = zone_coords
+        
+        return {
+            "status": "success",
+            "data": {
+                "coordinates": zone_coords,
+                "count": len(zone_coords),
+                "summary": f"Retrieved coordinates for {len(zone_coords)} out of {len(zone_ids)} zones"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_zone_coordinates: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to get zone coordinates: {str(e)}"
         }
 
 
@@ -1430,7 +1586,9 @@ def calculate_evacuation_priority(
                 "message": "No flood risk data available. Call get_flood_risk_data first."
             }
 
-        prioritized_locations = []
+        # Use a dictionary to track unique locations by coordinates
+        unique_locations = {}
+        
         for event in flood_events:
             # Risk score is based on historical precipitation and current hurricane intensity
             flood_score = (event.get("precipitation_inches", 0) / 10.0) * 0.6  # 60% weight
@@ -1438,17 +1596,26 @@ def calculate_evacuation_priority(
             total_risk_score = (flood_score + hurricane_score) * 10  # Scale to 0-10
 
             if total_risk_score > 5:
-                prioritized_locations.append({
-                    "latitude": event.get("latitude"),
-                    "longitude": event.get("longitude"),
-                    "risk_score": round(total_risk_score, 2),
-                    "details": {
-                        "historical_precipitation_inches": event.get("precipitation_inches"),
-                        "last_event_date": event.get("date")
+                lat = event.get("latitude")
+                lng = event.get("longitude")
+                coord_key = f"{lat},{lng}"
+                
+                # Only keep the highest risk score for each unique coordinate
+                if coord_key not in unique_locations or unique_locations[coord_key]["risk_score"] < total_risk_score:
+                    unique_locations[coord_key] = {
+                        "latitude": lat,
+                        "longitude": lng,
+                        "risk_score": round(total_risk_score, 2),
+                        "details": {
+                            "state": event.get("state"),
+                            "station_name": event.get("station_name"),
+                            "historical_precipitation_inches": event.get("precipitation_inches"),
+                            "last_event_date": event.get("date")
+                        }
                     }
-                })
-
-        # Sort by risk score (highest first)
+        
+        # Convert to list and sort by risk score (highest first)
+        prioritized_locations = list(unique_locations.values())
         prioritized_locations.sort(key=lambda x: x["risk_score"], reverse=True)
 
         # Save to state
@@ -1458,14 +1625,21 @@ def calculate_evacuation_priority(
             "timestamp": datetime.now().isoformat()
         }
 
-        logger.info(f"Calculated evacuation priority for {len(prioritized_locations)} high-risk locations.")
+        # Get state distribution for logging
+        state_counts = {}
+        for loc in prioritized_locations[:20]:
+            state = loc.get("details", {}).get("state", "Unknown")
+            state_counts[state] = state_counts.get(state, 0) + 1
+        
+        logger.info(f"Calculated evacuation priority for {len(prioritized_locations)} unique high-risk locations. Top 20 distribution: {state_counts}")
 
         return {
             "status": "success",
             "data": {
                 "prioritized_locations": prioritized_locations[:20],  # Return top 20
-                "total_locations_analyzed": len(prioritized_locations),
-                "summary": f"Identified {len(prioritized_locations)} high-risk locations based on flood data."
+                "total_unique_locations": len(prioritized_locations),
+                "state_distribution": state_counts,
+                "summary": f"Identified {len(prioritized_locations)} unique high-risk locations across multiple states based on flood data."
             }
         }
     
